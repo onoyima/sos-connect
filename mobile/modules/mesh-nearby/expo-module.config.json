@@ -1,0 +1,5 @@
+{
+  "platforms": ["android", "ios"],
+  "android": { "modules": ["ng.sosconnect.meshnearby.MeshNearbyModule"] },
+  "ios": { "modules": ["MeshNearbyModule"] }
+}

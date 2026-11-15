@@ -1,0 +1,10 @@
+{
+  "name": "sos-connect-edge-node",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Store-and-forward relay for a campus Wi-Fi access point. Phones on the same Wi-Fi exchange SOS and messages through it with no internet; when it has internet it uploads them to the SOS Connect server.",
+  "scripts": { "start": "node src/index.mjs" },
+  "dependencies": { "@msgpack/msgpack": "^3.1.2", "tweetnacl": "^1.0.3" },
+  "engines": { "node": ">=20" }
+}
