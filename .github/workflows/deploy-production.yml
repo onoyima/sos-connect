@@ -1,86 +1,159 @@
-name: Deploy SOS Connect to VPS
+name: Test and deploy SOS Connect
 
+# Runs in whichever repository holds this file, including a fork: in a fork, open the Actions tab once and press
+# "I understand my workflows, go ahead and enable them", then add the secrets below under
+# Settings → Secrets and variables → Actions. Pull requests never deploy (and never see the secrets).
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sos-connect-production
+  group: sos-connect-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sodium, pdo_sqlite, sqlite3, zip, intl, mbstring, fileinfo
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install PHP packages
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install web packages
+        run: npm ci
+
+      - name: Check web code (TypeScript)
+        run: npx tsc --noEmit -p .
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Run tests
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          php artisan test
+
   deploy:
-    name: Deploy production
+    name: Deploy to the server
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    environment: production
     steps:
-      - name: Deploy over SSH
-        shell: bash
+      - name: Check the deployment secrets
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
           VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
           VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
+          missing=()
+          for name in VPS_HOST VPS_SSH_USER VPS_SSH_PRIVATE_KEY VPS_KNOWN_HOSTS; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets in ${GITHUB_REPOSITORY}: ${missing[*]}. Add them under Settings → Secrets and variables → Actions (a fork needs its own copies)."
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_APP_PATH: ${{ secrets.VPS_APP_PATH }}
+        run: |
           set -Eeuo pipefail
-
-          test -n "$VPS_HOST"
-          test -n "$VPS_SSH_USER"
-          test -n "$VPS_SSH_PRIVATE_KEY"
-          test -n "$VPS_KNOWN_HOSTS"
-
-          KEY_FILE="$RUNNER_TEMP/sos-connect-deploy-key"
-          KNOWN_HOSTS_FILE="$RUNNER_TEMP/sos-connect-known-hosts"
-
+          KEY_FILE="$RUNNER_TEMP/deploy-key"
+          KNOWN_HOSTS_FILE="$RUNNER_TEMP/known-hosts"
+          trap 'rm -f "$KEY_FILE" "$KNOWN_HOSTS_FILE"' EXIT
           printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$KEY_FILE"
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$KNOWN_HOSTS_FILE"
           chmod 600 "$KEY_FILE" "$KNOWN_HOSTS_FILE"
 
-          ssh \
-            -i "$KEY_FILE" \
-            -o IdentitiesOnly=yes \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
-            "$VPS_SSH_USER@$VPS_HOST" 'bash -se' <<'REMOTE'
+          APP="${VPS_APP_PATH:-/home/prove-deploy/apps/sos-connect-pro}"
+          # The exact commit this run tested is the one deployed.
+          ssh -i "$KEY_FILE" -p "${VPS_PORT:-22}" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+            "$VPS_SSH_USER@$VPS_HOST" \
+            "APP='$APP' DEPLOY_SHA='$GITHUB_SHA' DEPLOY_BRANCH='$GITHUB_REF_NAME' DEPLOY_REPO='$GITHUB_REPOSITORY' bash -se" <<'REMOTE'
           set -Eeuo pipefail
-
-          APP="/home/prove-deploy/apps/sos-connect-pro"
           cd "$APP"
 
-          echo "Checking production working tree..."
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "ERROR: Production working tree has local changes. Stopping to avoid overwriting them."
-            git status --short
+          echo "Server copy: $(git remote get-url origin)  ←  workflow repository: $DEPLOY_REPO"
+
+          # Only tracked files count: built assets, uploads and the face model are untracked and ignored.
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "ERROR: files on the server were edited by hand. Stopping so they are not overwritten:"
+            git status --short --untracked-files=no
             exit 1
           fi
 
-          echo "Fetching latest main branch..."
-          git fetch origin main
-          git merge --ff-only origin/main
+          git fetch --prune origin "$DEPLOY_BRANCH"
+          if ! git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: commit $DEPLOY_SHA is not in the server's origin."
+            echo "If you deploy from a fork, point the server at it: git remote set-url origin git@github.com:$DEPLOY_REPO.git"
+            exit 1
+          fi
+          git checkout -q "$DEPLOY_BRANCH"
+          git merge --ff-only "$DEPLOY_SHA"
 
-          echo "Installing PHP production dependencies..."
-          composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader
+          # Visitors see Laravel's "back soon" page while this runs; it always comes back up, even if a step fails.
+          php artisan down --retry=15 || true
+          trap 'php artisan up || true' EXIT
 
-          echo "Installing frontend dependencies and building assets..."
-          npm ci
+          composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader --no-progress
+          npm ci --no-audit --no-fund
           npm run build
 
-          echo "Running database migrations..."
           php artisan migrate --force
-
-          echo "Refreshing Laravel production caches..."
           php artisan optimize:clear
           php artisan config:cache
           php artisan view:cache
+          php artisan event:cache
+          # Routes are not cached: a few use closures.
 
-          echo "SOS Connect deployment completed."
+          php artisan sos:face-model || true   # one-time download of the face model (skipped if already there)
+          php artisan queue:restart || true    # workers pick up the new code
+          php artisan reverb:restart || true   # live updates server picks up the new code
+
+          echo "Deployed $DEPLOY_SHA from $DEPLOY_REPO."
           REMOTE
 
-          rm -f "$KEY_FILE" "$KNOWN_HOSTS_FILE"
+      - name: Check the site answers
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$APP_URL" ]; then echo "APP_URL secret not set: skipping the check."; exit 0; fi
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/up" || true)
+            [ "$code" = "200" ] && { echo "Site is up."; exit 0; }
+            sleep 5
+          done
+          echo "::error::$APP_URL/up did not answer 200 after deploying (last: $code)."
+          exit 1
