@@ -4,7 +4,10 @@ import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Modal,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
-import { authHeaders, fileUrl } from '@/lib/files';
+import { authHeaders, cachedFile, fileUrl } from '@/lib/files';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useEvent } from 'expo';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { chatTime } from '@/lib/format';
 import { cachedStatuses, fetchStatuses, group, patchCached, STATUS_COLORS, type Comment, type Reactions, type Status } from '@/status/status';
 import { SyncEngine } from '@/sync/SyncEngine';
@@ -12,7 +15,7 @@ import { Avatar, Icon, IconButton } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
 
 const SECONDS = 7;
-const AUDIENCE: Record<string, string> = { contacts: 'my contacts', department: 'my department', institution: 'the whole institution' };
+const AUDIENCE: Record<string, string> = { contacts: 'people you chatted with', department: 'my department', faculty: 'my faculty', groups: 'chosen groups', selected: 'chosen people', institution: 'the whole institution' };
 
 /**
  * Full-screen status viewer: tap right for next, left for previous, hold to pause; moves on by itself.
@@ -39,6 +42,11 @@ export default function StatusViewer() {
     pausedRef.current = paused;
     const s = list[i];
     const mine = s?.user.id === me?.id;
+    // Videos and audio play to the end (their own length), then move on.
+    const playable = !!s?.media_path && (s.media_type === 'video' || s.media_type === 'audio');
+    const playableRef = useRef(playable);
+    playableRef.current = playable;
+    const [total, setTotal] = useState(SECONDS);
 
     // Opened from a notification: the list may not be loaded yet.
     useEffect(() => {
@@ -55,15 +63,16 @@ export default function StatusViewer() {
     useEffect(() => {
         if (!s) return;
         setElapsed(0);
+        setTotal(SECONDS);
         setReply('');
         if (!mine && !s.viewed) {
             api(`/status/${s.id}/view`, { method: 'POST' }).catch(() => {});
             update(s.id, { viewed: true });
         }
-        const t = setInterval(() => !pausedRef.current && setElapsed((e) => e + 0.1), 100);
+        const t = setInterval(() => !pausedRef.current && !playableRef.current && setElapsed((e) => e + 0.1), 100);
         return () => clearInterval(t);
     }, [s?.id]);
-    useEffect(() => { if (elapsed >= SECONDS) next(); }, [elapsed]);
+    useEffect(() => { if (!playable && elapsed >= SECONDS) next(); }, [elapsed]);
 
     const update = (id: number, patch: Partial<Status>) => {
         patchCached(id, patch);
@@ -119,7 +128,7 @@ export default function StatusViewer() {
                 <View style={{ flexDirection: 'row', gap: 4 }}>
                     {list.map((x, k) => (
                         <View key={x.id} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)' }}>
-                            <View style={{ height: 3, borderRadius: 2, backgroundColor: '#fff', width: `${k < i ? 100 : k === i ? Math.min(100, (elapsed / SECONDS) * 100) : 0}%` }} />
+                            <View style={{ height: 3, borderRadius: 2, backgroundColor: '#fff', width: `${k < i ? 100 : k === i ? Math.min(100, (elapsed / total) * 100) : 0}%` }} />
                         </View>
                     ))}
                 </View>
@@ -136,7 +145,11 @@ export default function StatusViewer() {
 
             <Pressable style={{ flex: 1, justifyContent: 'center' }} onLongPress={() => setHeld(true)} onPressOut={() => setHeld(false)} delayLongPress={250}
                 onPress={(e) => (e.nativeEvent.locationX < 120 ? prev() : next())}>
-                {s.media_path && headers ? <Image source={{ uri: fileUrl(s.media_path), headers }} style={{ width: '100%', height: '70%' }} resizeMode="contain" /> : null}
+                {s.media_path && headers && s.media_type === 'video'
+                    ? <StatusVideo key={s.id} uri={fileUrl(s.media_path)} headers={headers} paused={paused} onTime={(t, d) => { setElapsed(t); if (d) setTotal(d); }} onEnd={next} />
+                    : s.media_path && s.media_type === 'audio'
+                        ? <StatusAudio key={s.id} path={s.media_path} paused={paused} onTime={(t, d) => { setElapsed(t); if (d) setTotal(d); }} onEnd={next} />
+                        : s.media_path && headers ? <Image source={{ uri: fileUrl(s.media_path), headers }} style={{ width: '100%', height: '70%' }} resizeMode="contain" /> : null}
                 {s.body ? (
                     <Text style={s.media_path
                         ? { color: '#fff', fontSize: 16, textAlign: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.4)' }
@@ -291,5 +304,29 @@ function ViewersSheet({ statusId, onClose }: { statusId: number; onClose: () => 
                     )} />
             )}
         </Sheet>
+    );
+}
+
+function StatusVideo({ uri, headers, paused, onTime, onEnd }: { uri: string; headers: Record<string, string>; paused: boolean; onTime: (t: number, d: number) => void; onEnd: () => void }) {
+    const player = useVideoPlayer({ uri, headers }, (p) => { p.timeUpdateEventInterval = 0.25; p.play(); });
+    const time = useEvent(player, 'timeUpdate');
+    useEffect(() => { if (time) onTime(time.currentTime, player.duration); }, [time]);
+    useEffect(() => { const sub = player.addListener('playToEnd', onEnd); return () => sub.remove(); }, [player, onEnd]);
+    useEffect(() => { if (paused) player.pause(); else player.play(); }, [paused, player]);
+    return <VideoView player={player} style={{ width: '100%', height: '70%' }} contentFit="contain" nativeControls={false} />;
+}
+
+function StatusAudio({ path, paused, onTime, onEnd }: { path: string; paused: boolean; onTime: (t: number, d: number) => void; onEnd: () => void }) {
+    const [uri, setUri] = useState<string | null>(null);
+    useEffect(() => { cachedFile(path).then(setUri).catch(() => {}); }, [path]);
+    const player = useAudioPlayer(uri ? { uri } : null);
+    const st = useAudioPlayerStatus(player);
+    useEffect(() => { if (uri) player.play(); }, [uri, player]);
+    useEffect(() => { if (!uri) return; if (paused) player.pause(); else player.play(); }, [paused, uri, player]);
+    useEffect(() => { onTime(st.currentTime, st.duration); if (st.didJustFinish) onEnd(); }, [st.currentTime, st.didJustFinish]);
+    return (
+        <View style={{ alignItems: 'center', gap: 14, padding: 30 }}>
+            {uri ? <Icon name="musical-notes" size={72} color="#fff" /> : <ActivityIndicator color="#fff" />}
+        </View>
     );
 }

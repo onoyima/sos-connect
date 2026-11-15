@@ -41,10 +41,19 @@ class ConversationController extends Controller
         $directPeers = ConversationMember::whereIn('conversation_id', $chats->where('type', 'direct')->pluck('id'))
             ->where('user_id', '!=', $me->id)->with('user:id,name,title,last_seen_at')->get()->keyBy('conversation_id');
 
+        // A paused chat shows nothing newer than when it was paused (those messages appear when I resume).
+        foreach ($ids as $cid) {
+            if (($held = $memberships[$cid]->paused_after_message_id) !== null) {
+                $last[$cid] = Message::with('sender:id,name')->where('conversation_id', $cid)->where('id', '<=', $held)->orderByDesc('id')->first();
+            }
+        }
+
         $unread = [];
         foreach ($ids as $cid) {
+            $held = $memberships[$cid]->paused_after_message_id;
             $unread[$cid] = Message::where('conversation_id', $cid)->where('sender_id', '!=', $me->id)
-                ->where('id', '>', (int) $memberships[$cid]->last_read_message_id)->limit(100)->count();
+                ->where('id', '>', (int) $memberships[$cid]->last_read_message_id)
+                ->when($held !== null, fn ($q) => $q->where('id', '<=', $held))->limit(100)->count();
         }
 
         return response()->json([
@@ -54,14 +63,17 @@ class ConversationController extends Controller
                 'auto_type' => $c->auto_type,
                 'community_id' => $c->parent_id,
                 'name' => $c->type === 'direct' ? (($directPeers[$c->id] ?? null)?->user?->name ?? 'Former member') : $c->name,
-                'peer' => $c->type === 'direct' ? ($directPeers[$c->id] ?? null)?->user?->only(['id', 'name', 'title', 'last_seen_at']) : null,
+                'peer' => $c->type === 'direct' ? ($directPeers[$c->id] ?? null)?->user?->only(['id', 'name', 'last_seen_at']) : null,
                 'posting' => $c->posting,
                 'can_post' => $c->posting === 'everyone' || $c->canPost($me),
                 'my_role' => $memberships[$c->id]->role,
-                'muted' => (bool) $memberships[$c->id]->muted,
+                'muted' => $memberships[$c->id]->isMuted(),
+                'muted_until' => $memberships[$c->id]->isMuted() ? $memberships[$c->id]->muted_until?->toIso8601String() : null,
+                'archived' => (bool) $memberships[$c->id]->archived_at,
+                'paused_after' => $memberships[$c->id]->paused_after_message_id,
                 'member_count' => (int) ($counts[$c->id] ?? 0),
                 'unread' => $unread[$c->id] ?? 0,
-                'last_message' => isset($last[$c->id]) ? $last[$c->id]->toClient() : null,
+                'last_message' => ($last[$c->id] ?? null)?->toClient(),
                 'last_message_at' => $c->last_message_at?->toIso8601String(),
             ])->values(),
             'communities' => $communities->map(fn (Conversation $c) => [
@@ -102,11 +114,12 @@ class ConversationController extends Controller
      */
     public function messages(Request $request, Conversation $conversation): JsonResponse
     {
-        $this->assertMember($conversation, $request->user());
+        $held = $this->assertMember($conversation, $request->user())->paused_after_message_id;
         $limit = min((int) $request->query('limit', 50), 100);
         $before = (int) $request->query('before', 0);
         $around = (int) $request->query('around', 0);
-        $base = fn () => Message::withTrashed()->with(['sender:id,name', 'replyTo'])->where('conversation_id', $conversation->id);
+        $base = fn () => Message::withTrashed()->with(['sender:id,name', 'replyTo'])->where('conversation_id', $conversation->id)
+            ->when($held !== null, fn ($q) => $q->where('id', '<=', $held)); // paused: newer messages wait until I resume
 
         if ($around) {
             $older = $base()->where('id', '<=', $around)->orderByDesc('id')->limit(25)->get()->reverse();
@@ -263,10 +276,25 @@ class ConversationController extends Controller
     public function settings(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
-        $data = $request->validate(['muted' => 'sometimes|boolean', 'posting' => 'sometimes|in:everyone,admins',
+        $data = $request->validate(['muted' => 'sometimes|boolean', 'mute_hours' => 'sometimes|nullable|integer|in:8,168',
+            'archived' => 'sometimes|boolean', 'paused' => 'sometimes|boolean', 'posting' => 'sometimes|in:everyone,admins',
             'name' => 'sometimes|string|max:120', 'description' => 'sometimes|nullable|string|max:500']);
+        $inst = $me->institution;
         if (array_key_exists('muted', $data)) {
-            $this->assertMember($conversation, $me)->update(['muted' => $data['muted']]);
+            abort_unless(Modules::enabled($inst, 'mute_chats') || ! $data['muted'], 403, 'Muting chats is switched off by your institution.');
+            $this->assertMember($conversation, $me)->update(['muted' => $data['muted'],
+                'muted_until' => $data['muted'] && ! empty($data['mute_hours']) ? now()->addHours((int) $data['mute_hours']) : null]);
+        }
+        if (array_key_exists('archived', $data)) {
+            abort_unless(Modules::enabled($inst, 'archive_chats') || ! $data['archived'], 403, 'Archiving chats is switched off by your institution.');
+            $this->assertMember($conversation, $me)->update(['archived_at' => $data['archived'] ? now() : null]);
+        }
+        if (array_key_exists('paused', $data)) {
+            abort_unless(Modules::enabled($inst, 'pause_chats') || ! $data['paused'], 403, 'Pausing chats is switched off by your institution.');
+            $membership = $this->assertMember($conversation, $me);
+            $membership->update(['paused_after_message_id' => $data['paused']
+                ? (int) (Message::withTrashed()->where('conversation_id', $conversation->id)->max('id') ?? 0)
+                : null]);
         }
         $changes = array_intersect_key($data, array_flip(['posting', 'name', 'description']));
         if ($changes) {

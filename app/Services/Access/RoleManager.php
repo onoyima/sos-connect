@@ -29,7 +29,7 @@ class RoleManager
 {
     /** What every member gets by default; institutions can change this on the Student, Staff and Parent roles. */
     public const MEMBER_BASICS = ['chat.use', 'chat.direct', 'chat.files', 'directory.search', 'groups.create',
-        'announcements.view', 'status.post', 'calls.voice', 'calls.video', 'sos.raise'];
+        'announcements.view', 'status.post', 'calls.voice', 'calls.video', 'sos.raise', 'face.capture'];
 
     private const NOTICES = ['announcements.create', 'announcements.edit', 'announcements.delete'];
 
@@ -49,7 +49,8 @@ class RoleManager
                 'description' => 'Runs SOS Connect for the institution (usually ICT). Cannot read private messages.',
                 'permissions' => array_merge(['chat.anyone', 'settings.edit', 'connector.edit', 'modules.manage', 'roles.view', 'roles.create', 'roles.edit',
                     'roles.delete', 'roles.assign', 'permissions.assign', 'members.view', 'members.contact', 'members.suspend', 'members.consent',
-                    'parents.invite', 'units.view', 'units.manage', 'audit.view', 'reports.view', 'reports.resolve', 'data_requests.view'], self::GROUP_ADMIN)],
+                    'parents.invite', 'units.view', 'units.manage', 'audit.view', 'reports.view', 'reports.resolve', 'data_requests.view',
+                    'faces.view', 'faces.export', 'broadcasts.manage', 'help.manage', 'design.view', 'branding.manage'], self::GROUP_ADMIN)],
             ['slug' => 'vice_chancellor', 'name' => 'Vice-Chancellor', 'rank' => 5, 'dm_protected' => true,
                 'description' => 'Institution-wide notices and safety checks, oversight of SOS and reports.',
                 'permissions' => array_merge(self::NOTICES, self::SAFETY, ['chat.anyone', 'members.view', 'sos.view', 'reports.view', 'audit.view', 'groups.view', 'roles.view', 'units.view'])],
@@ -57,7 +58,7 @@ class RoleManager
                 'description' => 'Members, notices, safety checks and giving roles across the institution.',
                 'permissions' => array_merge(self::NOTICES, self::SAFETY, self::GROUP_ADMIN, ['chat.anyone', 'members.view', 'members.contact', 'members.suspend',
                     'members.consent', 'parents.invite', 'sos.view', 'reports.view', 'reports.resolve', 'data_requests.view', 'roles.view',
-                    'roles.assign', 'units.view', 'units.manage'])],
+                    'roles.assign', 'units.view', 'units.manage', 'broadcasts.manage'])],
             ['slug' => 'dean_student_affairs', 'name' => 'Dean of Student Affairs', 'rank' => 15,
                 'description' => 'Student welfare: hostels, wardens, reports, safety and parents.',
                 'permissions' => array_merge(self::NOTICES, self::SAFETY, self::GROUP_ADMIN, ['chat.anyone', 'members.view', 'members.contact', 'members.suspend',

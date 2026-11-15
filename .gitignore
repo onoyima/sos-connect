@@ -1,4 +1,3 @@
-# Laravel
 /vendor
 /node_modules
 /public/build
@@ -10,62 +9,14 @@
 .env.backup
 .env.production
 .phpunit.result.cache
-Homestead.json
-Homestead.yaml
-npm-debug.log
-yarn-error.log
-*.log
-*.cache
-
-# IDE
-.idea
-.vscode
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Mobile (Expo/React Native)
 /mobile/node_modules
 /mobile/.expo
-/mobile/.expo-shared
 /mobile/android
 /mobile/ios
 /mobile/.env
-/mobile/.env.local
-/mobile/.env.*.local
-/mobile/dist
-/mobile/build
-/mobile/*.log
-/mobile/coverage
-/mobile/.turbo
-
-# Edge Node
 /edge-node/node_modules
 /edge-node/.env
 /edge-node/edge-store.json
-/edge-node/dist
-/edge-node/*.log
-
-# Connector
 /connector/config.php
 /connector/storage
-/connector/vendor
-/connector/*.log
-
-# Testing
-/coverage
-/phpunit.coverage.xml
-.phpunit.result.cache
-
-# Misc
-*.pem
-*.key
-*.crt
-*.orig
-*.bak
-*.tmp
-*.temp
+/public/mediapipe/face_landmarker.task

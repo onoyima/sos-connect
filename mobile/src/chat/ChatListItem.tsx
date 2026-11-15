@@ -6,6 +6,7 @@ import { colors, ui } from '@/ui/theme';
 export type ChatRow = {
     id: number; type: string; auto_type: string | null; community_id: number | null; name: string; member_count: number; unread: number;
     muted: number; can_post: number; peer_json: string | null; last_message_json: string | null; last_message_at: string | null;
+    archived?: number; paused_after?: number | null; muted_until?: string | null;
 };
 
 export function chatIcon(c: Pick<ChatRow, 'type' | 'auto_type'>) {
@@ -21,7 +22,7 @@ export function chatIcon(c: Pick<ChatRow, 'type' | 'auto_type'>) {
     }
 }
 
-export function ChatListItem({ item, meId, onPress }: { item: ChatRow; meId?: number; onPress: () => void }) {
+export function ChatListItem({ item, meId, onPress, onLongPress }: { item: ChatRow; meId?: number; onPress: () => void; onLongPress?: () => void }) {
     const last = item.last_message_json ? JSON.parse(item.last_message_json) : null;
     return (
         <ListRow
@@ -29,10 +30,12 @@ export function ChatListItem({ item, meId, onPress }: { item: ChatRow; meId?: nu
             subtitle={preview(last, last?.sender_id === meId, item.type !== 'direct')}
             left={<Avatar name={item.name} icon={chatIcon(item)} />}
             onPress={onPress}
+            onLongPress={onLongPress}
             right={
                 <View style={{ alignItems: 'flex-end', gap: 5 }}>
                     <Text style={{ fontSize: 12, color: item.unread > 0 && !item.muted ? colors.sos : colors.muted, fontWeight: item.unread > 0 ? '700' : '400' }}>{chatTime(item.last_message_at)}</Text>
                     <View style={ui.row}>
+                        {item.paused_after != null ? <Icon name="pause-circle-outline" size={16} color={colors.muted} /> : null}
                         {item.muted ? <Icon name="volume-mute" size={16} color={colors.muted} /> : null}
                         <Badge count={item.unread} color={item.muted ? colors.muted : colors.sos} />
                     </View>

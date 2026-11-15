@@ -19,9 +19,11 @@ export type AppEvents = {
     /** Someone tagged me in a status, or reacted/commented on mine. */
     statusActivity: { kind: string; title: string; status_id: number };
     /** A chat request arrived, was accepted, or was declined/cancelled. */
-    chatRequest: { kind: 'received' | 'accepted' | 'updated'; data: any };
+    chatRequest: { kind: 'received' | 'accepted' | 'declined' | 'updated'; data: any };
     /** Red counts from the server: missed calls and chat requests (unread chats are counted on the phone). */
     badges: { chats: number; calls: number; requests: number };
+    /** Pop-ups or marquee lines from the institution changed. */
+    broadcasts: void;
 };
 
 const handlers: { [K in keyof AppEvents]?: Set<Handler<AppEvents[K]>> } = {};

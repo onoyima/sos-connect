@@ -126,8 +126,8 @@ class MessageService
 
     private function push(User $sender, Conversation $conversation, Message $message): void
     {
-        $members = ConversationMember::where('conversation_id', $conversation->id)
-            ->where('user_id', '!=', $sender->id)->where('muted', false);
+        $members = ConversationMember::alertable(ConversationMember::where('conversation_id', $conversation->id)
+            ->where('user_id', '!=', $sender->id));
 
         $count = (clone $members)->count();
         $senderIsAdmin = (bool) $conversation->membershipFor($sender)?->isAdmin() || $conversation->posting === 'admins';

@@ -148,10 +148,10 @@ class SyncEngineImpl {
             await d.runAsync('DELETE FROM conversations');
             for (const c of r.conversations) {
                 await d.runAsync(
-                    `INSERT INTO conversations (id, type, name, posting, my_role, member_count, unread, peer_json, last_message_json, last_message_at, auto_type, community_id, can_post, muted)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO conversations (id, type, name, posting, my_role, member_count, unread, peer_json, last_message_json, last_message_at, auto_type, community_id, can_post, muted, archived, paused_after, muted_until)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     c.id, c.type, c.name, c.posting, c.my_role, c.member_count, c.unread, JSON.stringify(c.peer), JSON.stringify(c.last_message), c.last_message_at,
-                    c.auto_type ?? null, c.community_id ?? null, c.can_post === false ? 0 : 1, c.muted ? 1 : 0);
+                    c.auto_type ?? null, c.community_id ?? null, c.can_post === false ? 0 : 1, c.muted ? 1 : 0, c.archived ? 1 : 0, c.paused_after ?? null, c.muted_until ?? null);
             }
             await d.runAsync('DELETE FROM communities');
             for (const c of r.communities ?? []) {

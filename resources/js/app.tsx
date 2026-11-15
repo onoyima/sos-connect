@@ -1,4 +1,6 @@
 import { createInertiaApp, router } from '@inertiajs/react';
+import { applyFavicon } from '@/lib/favicon';
+import type { Branding } from '@/types';
 import { guardHistory, sessionEnded } from '@/lib/session';
 import { createRoot } from 'react-dom/client';
 
@@ -12,6 +14,8 @@ createInertiaApp({
     },
     setup({ el, App, props }) {
         createRoot(el).render(<App {...props} />);
+        applyFavicon((props.initialPage.props as { branding?: Branding }).branding);
+        router.on('navigate', (e) => applyFavicon((e.detail.page.props as { branding?: Branding }).branding));
         // The opening screen stays until the chats are loaded (the chats page says when); other pages are ready at once.
         if (props.initialPage.component !== 'Chats/Index') requestAnimationFrame(() => (window as { __sosReady?: () => void }).__sosReady?.());
     },

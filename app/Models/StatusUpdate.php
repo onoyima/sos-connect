@@ -12,7 +12,7 @@ class StatusUpdate extends Model
 {
     use BelongsToInstitution;
 
-    protected $fillable = ['institution_id', 'user_id', 'body', 'media_path', 'background', 'audience', 'expires_at'];
+    protected $fillable = ['institution_id', 'user_id', 'body', 'media_path', 'media_type', 'background', 'audience', 'expires_at'];
 
     protected function casts(): array
     {
@@ -28,6 +28,18 @@ class StatusUpdate extends Model
     public function mentioned(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'status_mentions');
+    }
+
+    /** For "chosen groups" and "chosen people": everyone it was shared with. */
+    public function audienceUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'status_audience');
+    }
+
+    /** People it is hidden from, whatever the audience. */
+    public function hiddenFrom(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'status_hidden');
     }
 
     public function comments(): HasMany

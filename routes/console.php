@@ -56,6 +56,14 @@ Artisan::command('sos:prune', function () {
             AuditLog::where('institution_id', $i->id)->where('created_at', '<', $days('audit_logs'))->delete();
         });
         MeshEnvelope::where('expires_at', '<', now())->delete();
+
+        // Face capture: export files are removed after a day; unfinished captures after a day.
+        foreach (\App\Models\FaceExport::whereNotNull('path')->where('created_at', '<', now()->subDay())->get() as $x) {
+            \Illuminate\Support\Facades\Storage::disk('local')->delete($x->path);
+            $x->update(['path' => null]);
+        }
+        $faces = app(\App\Services\Faces\FaceStore::class);
+        \App\Models\FaceEnrollment::where('status', 'in_progress')->where('created_at', '<', now()->subDay())->get()->each(fn ($e) => $faces->deleteEnrollment($e));
     });
     $this->info('Retention applied.');
 })->purpose('Delete or blur data past its retention period');
@@ -174,6 +182,9 @@ Artisan::command('sos:serve {--host=0.0.0.0 : Address to listen on (0.0.0.0 = re
 
         return 0;
     }
+    if (! is_file(public_path('mediapipe/face_landmarker.task'))) {
+        $this->call('sos:face-model'); // once; face capture also works without it (the page then loads the model from Google)
+    }
     $php = (new \Symfony\Component\Process\PhpExecutableFinder)->find(false) ?: 'php';
     $artisan = base_path('artisan');
     $procs = [
@@ -226,3 +237,37 @@ Artisan::command('sos:serve {--host=0.0.0.0 : Address to listen on (0.0.0.0 = re
         usleep(200_000);
     }
 })->purpose('Start the website and live updates together');
+
+/*
+ * Face capture runs a face-tracking model in the browser. This keeps a copy on this server, so the capture page works
+ * on a campus network without reaching Google, and loads faster. Official model from Google's MediaPipe.
+ */
+Artisan::command('sos:face-model {--force : Download again}', function () {
+    $dest = public_path('mediapipe/face_landmarker.task');
+    if (is_file($dest) && ! $this->option('force')) {
+        $this->info('Face model already here: '.$dest);
+
+        return 0;
+    }
+    $url = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+    $this->line('Downloading the face model (about 4 MB)...');
+    try {
+        $res = \Illuminate\Support\Facades\Http::timeout(120)->withOptions(['sink' => $dest.'.part'])->get($url);
+    } catch (\Throwable $e) {
+        @unlink($dest.'.part');
+        $this->warn('Could not download the face model ('.$e->getMessage().'). Face capture will load it from Google instead.');
+
+        return 0;
+    }
+    $head = (string) @file_get_contents($dest.'.part', false, null, 0, 2);
+    if (! $res->successful() || filesize($dest.'.part') < 1_000_000 || $head !== 'PK') {
+        @unlink($dest.'.part');
+        $this->warn('The face model download failed. Face capture will load it from Google instead. Try again later: php artisan sos:face-model');
+
+        return 0;
+    }
+    rename($dest.'.part', $dest);
+    $this->info('Face model saved: '.$dest);
+
+    return 0;
+})->purpose('Download the face-tracking model used by face capture');

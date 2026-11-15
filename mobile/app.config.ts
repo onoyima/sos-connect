@@ -23,6 +23,7 @@ const config: ExpoConfig = {
             NSMicrophoneUsageDescription: 'For voice notes and calls.',
             NSCameraUsageDescription: 'For video calls, photos you choose to send, and scanning the code to link a web browser.',
             UIBackgroundModes: ['remote-notification', 'voip'],
+            ITSAppUsesNonExemptEncryption: false,
         },
     },
     android: {
@@ -56,7 +57,7 @@ const config: ExpoConfig = {
         },
         // From `php artisan sos:platform-keys` (public half only). Lets phones verify each other offline.
         platformPublicKey: process.env.EXPO_PUBLIC_PLATFORM_PUBLIC_KEY ?? '',
-        eas: { projectId: process.env.EAS_PROJECT_ID },
+        eas: { projectId: 'a1c212fa-a9cc-47af-a870-2e2516753b57' },
     },
 };
 

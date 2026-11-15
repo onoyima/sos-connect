@@ -6,6 +6,7 @@ import { Animated, Easing, Text, View } from 'react-native';
 import { AuthProvider, useAuth } from '@/auth/AuthContext';
 import { CallProvider } from '@/calls/CallContext';
 import { CallOverlay } from '@/ui/CallOverlay';
+import { BroadcastPopup } from '@/broadcasts/Popup';
 import { Button, Icon } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
 
@@ -83,8 +84,10 @@ function Gate() {
                 <Stack.Screen name="policies" />
                 <Stack.Screen name="status/[userId]" options={{ animation: 'fade' }} />
                 <Stack.Screen name="status/new" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="face-capture" options={{ animation: 'slide_from_bottom' }} />
             </Stack>
             <CallOverlay />
+            <BroadcastPopup ready={status === 'ready' && !me?.needs_policy_acceptance} />
         </>
     );
 }

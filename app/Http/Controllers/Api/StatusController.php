@@ -20,10 +20,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Status updates with an audience the poster chooses:
- *   contacts    = people I have a direct chat with (default)
- *   department  = my department
+ * Status updates (text, photo, GIF, video or audio) with an audience the poster chooses:
+ *   contacts    = people I have ever chatted with one-to-one (default)
+ *   department  = my department          faculty = my faculty
+ *   groups      = members of groups I choose (that I'm in)
+ *   selected    = people I choose
  *   institution = everyone at my institution (can be limited by the institution)
+ * and, whatever the audience, minus anyone I hide it from.
  * People tagged in a status can always see it. Anyone who can see a status can like or love it, comment on it,
  * reply to a comment, or reply privately (which goes to a one-to-one chat with the poster).
  */
@@ -62,7 +65,10 @@ class StatusController extends Controller
             'body' => 'nullable|string|max:700|required_without:media_path',
             'media_path' => 'nullable|string|max:255|starts_with:uploads/'.$me->institution_id.'/',
             'background' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
-            'audience' => 'required|in:contacts,department,institution',
+            'audience' => 'required|in:contacts,department,faculty,groups,selected,institution',
+            'group_ids' => 'array|max:20|required_if:audience,groups', 'group_ids.*' => 'integer',
+            'people' => 'array|max:500|required_if:audience,selected', 'people.*' => 'integer',
+            'hidden' => 'array|max:500', 'hidden.*' => 'integer',
             'mentions' => 'array|max:20',
             'mentions.*' => 'integer',
         ]);
@@ -71,16 +77,47 @@ class StatusController extends Controller
         }
         $tagged = $me->colleagues()->whereIn('id', $data['mentions'] ?? [])->where('id', '!=', $me->id)->get(['id', 'name']);
 
-        $status = DB::transaction(function () use ($me, $data, $tagged) {
+        // What kind of media, from the file itself (the upload already checked its type).
+        $mediaType = null;
+        if (! empty($data['media_path'])) {
+            abort_unless(\Illuminate\Support\Facades\Storage::disk('local')->exists($data['media_path']), 422, 'That file was not found. Upload it again.');
+            $mime = (string) \Illuminate\Support\Facades\Storage::disk('local')->mimeType($data['media_path']);
+            $mediaType = match (true) {
+                $mime === 'image/gif' => 'gif',
+                str_starts_with($mime, 'image/') => 'image',
+                str_starts_with($mime, 'video/') => 'video',
+                str_starts_with($mime, 'audio/') => 'audio',
+                default => abort(422, 'A status can have a photo, GIF, video or audio.'),
+            };
+        }
+
+        // Chosen groups (only ones I'm in) or chosen people (from my institution), as people.
+        $audienceIds = match ($data['audience']) {
+            'groups' => ConversationMember::whereIn('conversation_id', ConversationMember::where('user_id', $me->id)->whereIn('conversation_id', $data['group_ids'] ?? [])->pluck('conversation_id'))
+                ->where('user_id', '!=', $me->id)->distinct()->limit(20000)->pluck('user_id')->all(),
+            'selected' => $me->colleagues()->whereIn('id', $data['people'] ?? [])->where('id', '!=', $me->id)->pluck('id')->all(),
+            default => [],
+        };
+        abort_if(in_array($data['audience'], ['groups', 'selected'], true) && ! $audienceIds, 422, 'Choose at least one group or person to share with.');
+        $hidden = $me->colleagues()->whereIn('id', $data['hidden'] ?? [])->where('id', '!=', $me->id)->pluck('id')->all();
+
+        $status = DB::transaction(function () use ($me, $data, $tagged, $mediaType, $audienceIds, $hidden) {
             $s = StatusUpdate::create([
-                'user_id' => $me->id, 'body' => $data['body'] ?? null, 'media_path' => $data['media_path'] ?? null,
+                'user_id' => $me->id, 'body' => $data['body'] ?? null, 'media_path' => $data['media_path'] ?? null, 'media_type' => $mediaType,
                 'background' => isset($data['media_path']) ? null : ($data['background'] ?? null),
                 'audience' => $data['audience'], 'expires_at' => now()->addHours(config('sos.status.expiry_hours')),
             ]);
-            $s->mentioned()->sync($tagged->pluck('id'));
+            $s->mentioned()->sync($tagged->pluck('id')->diff($hidden));
+            foreach (array_chunk($audienceIds, 1000) as $chunk) {
+                DB::table('status_audience')->insert(array_map(fn ($id) => ['status_update_id' => $s->id, 'user_id' => $id], $chunk));
+            }
+            foreach (array_chunk($hidden, 1000) as $chunk) {
+                DB::table('status_hidden')->insert(array_map(fn ($id) => ['status_update_id' => $s->id, 'user_id' => $id], $chunk));
+            }
 
             return $s;
         });
+        $tagged = $tagged->whereNotIn('id', $hidden);
 
         $this->changed($status);
         if ($tagged->isNotEmpty()) {
@@ -228,13 +265,20 @@ class StatusController extends Controller
     {
         $contactIds = $this->contactIds($me->id);
 
+        $hidden = DB::table('status_hidden')->where('user_id', $me->id)->select('status_update_id');
+        $shared = DB::table('status_audience')->where('user_id', $me->id)->select('status_update_id');
+
         return StatusUpdate::query()->where('expires_at', '>', now())
             ->where(fn ($q) => $q->where('user_id', $me->id)
-                ->orWhere('audience', 'institution')
-                ->orWhere(fn ($w) => $w->where('audience', 'contacts')->whereIn('user_id', $contactIds))
-                ->orWhere(fn ($w) => $w->where('audience', 'department')->whereNotNull('user_id')
-                    ->whereHas('user', fn ($u) => $u->whereNotNull('department_unit_id')->where('department_unit_id', $me->department_unit_id)))
-                ->orWhereHas('mentioned', fn ($m) => $m->where('users.id', $me->id)));
+                ->orWhere(fn ($others) => $others->whereNotIn('id', $hidden)->where(fn ($a) => $a
+                    ->where('audience', 'institution')
+                    ->orWhere(fn ($w) => $w->where('audience', 'contacts')->whereIn('user_id', $contactIds))
+                    ->orWhere(fn ($w) => $w->where('audience', 'department')->whereNotNull('user_id')
+                        ->whereHas('user', fn ($u) => $u->whereNotNull('department_unit_id')->where('department_unit_id', $me->department_unit_id)))
+                    ->orWhere(fn ($w) => $w->where('audience', 'faculty')->whereNotNull('user_id')
+                        ->whereHas('user', fn ($u) => $u->whereNotNull('faculty_unit_id')->where('faculty_unit_id', $me->faculty_unit_id)))
+                    ->orWhere(fn ($w) => $w->whereIn('audience', ['groups', 'selected'])->whereIn('id', $shared))
+                    ->orWhereHas('mentioned', fn ($m) => $m->where('users.id', $me->id)))));
     }
 
     private function mustSee(User $me, StatusUpdate $status): void
@@ -256,7 +300,7 @@ class StatusController extends Controller
     {
         return [
             'id' => $s->id, 'user' => ['id' => $s->user_id, 'name' => $s->user?->name ?? 'Former member'], 'body' => $s->body,
-            'media_path' => $s->media_path, 'background' => $s->background,
+            'media_path' => $s->media_path, 'media_type' => $s->media_path ? ($s->media_type ?? 'image') : null, 'background' => $s->background,
             'audience' => $s->user_id === $me->id ? $s->audience : null,
             'mentions' => $s->mentioned->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values(),
             'comment_count' => (int) $s->comments_count,

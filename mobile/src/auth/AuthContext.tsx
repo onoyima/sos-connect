@@ -12,7 +12,11 @@ export type Me = {
     id: number; name: string; title: string | null; member_type: string; modules?: Record<string, boolean>; identifier: string | null;
     department: string | null; faculty?: string | null; level: number | null; programme?: string | null; residence?: string | null;
     children?: { name: string; relationship: string | null; department: string | null; level: number | null }[];
-    permissions: string[]; needs_policy_acceptance: boolean; needs_guardian_consent: boolean;
+    permissions: string[]; needs_policy_acceptance: boolean;
+    /** Face capture switched on for the institution (null = off), required, and done by me. */
+    face?: { required: boolean; done: boolean } | null;
+    /** Institution icon and today's seasonal badge (Christmas, Easter, Eid…). */
+    branding?: { favicon: string | null; icon: string | null; season: null | { key: string; label: string; badge: string; accent: string } }; needs_guardian_consent: boolean;
     institution: { id: number; name: string; short_code: string; country: string; security_phone: string | null; emergency_numbers: string[] } | null;
 };
 

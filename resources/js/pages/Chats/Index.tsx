@@ -1,6 +1,6 @@
 import { Head, usePage } from '@inertiajs/react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, AtSign, Check, CheckCheck, ChevronDown, ChevronRight, Clock, FileText, Flag, Lock, Megaphone, MessageCircle, Paperclip, Pencil, Phone, Radio, Reply, Search, SendHorizontal, Smile, SquarePen, Trash2, UserPlus, Users, UsersRound, Video, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, AtSign, BellOff, Check, EllipsisVertical, PauseCircle, PlayCircle, Plus, CheckCheck, ChevronDown, ChevronRight, Clock, FileText, Flag, Lock, Megaphone, MessageCircle, Paperclip, Pencil, Phone, Radio, Reply, Search, SendHorizontal, Smile, SquarePen, Trash2, UserPlus, Users, UsersRound, Video, X } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { joinGroupCall, startCall, startGroupCall } from '@/components/CallManager';
 import { MicButton, VoicePlayer, VoiceRecorder, canRecordVoice } from '@/components/VoiceNote';
@@ -70,6 +70,9 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     }), []);
 
     const onIncoming = (m: ChatMessage) => {
+        // A paused chat holds back new messages (they appear when I resume it).
+        const held = conversationsRef.current.find((c) => c.id === m.conversation_id)?.paused_after;
+        if (held !== null && held !== undefined && m.id > held && m.sender_id !== me.id) return;
         if (m.type === 'system' && m.meta?.call && m.conversation_id === activeIdRef.current) checkCall(m.conversation_id);
         setMessages((prev) => {
             if (m.conversation_id !== activeIdRef.current) return prev;
@@ -290,7 +293,7 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     };
 
     const canPost = !!active?.can_post;
-    const unreadChats = conversations.filter((c) => c.unread > 0 && !c.muted).length;
+    const unreadChats = conversations.filter((c) => c.unread > 0 && !c.muted && !c.archived).length;
     const unreadCommunities = conversations.some((c) => c.community_id && c.unread > 0 && !c.muted);
     const canVoice = auth!.permissions.includes('calls.voice') && modules?.voice_calls !== false;
     const canVideo = auth!.permissions.includes('calls.video') && modules?.video_calls !== false;
@@ -301,7 +304,21 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     const canGroup = perms.includes('groups.create');
     const canDirect = perms.includes('chat.direct');
     const canFiles = perms.includes('chat.files');
-    const shown = filter.trim() ? conversations.filter((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())) : conversations;
+    const [showArchived, setShowArchived] = useState(false);
+    const [menuFor, setMenuFor] = useState<{ id: number; x: number; y: number } | null>(null);
+    const matching = filter.trim() ? conversations.filter((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())) : conversations;
+    const archived = matching.filter((c) => c.archived);
+    const shown = showArchived ? archived : matching.filter((c) => !c.archived);
+    const controls = { mute: modules?.mute_chats !== false, archive: modules?.archive_chats !== false, pause: modules?.pause_chats !== false };
+    const setChat = async (c: ConversationSummary, body: Record<string, unknown>) => {
+        setMenuFor(null);
+        try {
+            await api(`/conversations/${c.id}`, { method: 'PATCH', body });
+            await loadConversations();
+            refreshBadges();
+            if ('paused' in body && c.id === activeIdRef.current && body.paused === false) open(c.id); // resumed: show what was held back
+        } catch (e) { setError((e as Error).message); }
+    };
     const communityName = (id: number | null) => communities.find((c) => c.id === id)?.name;
 
     return (
@@ -318,11 +335,11 @@ export default function Chats({ openConversationId }: { openConversationId: numb
             <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
                 {/* Conversation list */}
                 <section className={`w-full shrink-0 flex-col border-r border-line bg-white md:flex md:w-[340px] ${activeId ? 'hidden' : 'flex'}`}>
-                    <div className="flex items-center justify-end px-4 pt-3 pb-2 md:justify-between md:pt-4">
-                        <h1 className="hidden text-xl font-bold md:block">Chats</h1>
-                        <div className="flex">
+                    <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 md:pt-4">
+                        <h1 className="text-xl font-bold">{showArchived ? 'Archived' : 'Chats'}</h1>
+                        <div className="flex items-center gap-1">
                             {canGroup && <button className="icon-btn" onClick={() => setPicker('group')} aria-label="New group" title="New group"><Users size={20} /></button>}
-                            {canDirect && <button className="icon-btn" onClick={() => setPicker('direct')} aria-label="New chat" title="New chat"><SquarePen size={20} /></button>}
+                            {canDirect && <button className="btn-primary px-3.5 py-1.5 text-sm" onClick={() => setPicker('direct')} title="Find someone to chat with, or send them a chat request"><Plus size={17} />New chat</button>}
                         </div>
                     </div>
                     {communities.length > 0 && (
@@ -359,8 +376,18 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                                 {!filter && <>Your university, faculty, department and class groups appear here when you sign in.{canDirect && <> To message someone directly, <button className="font-semibold text-leaf underline" onClick={() => setPicker('direct')}>start a chat</button>.</>}</>}
                             </EmptyState>
                         )}
+                        {showArchived ? (
+                            <button onClick={() => setShowArchived(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-leaf hover:bg-mist"><ArrowLeft size={18} />Back to chats</button>
+                        ) : archived.length > 0 && (
+                            <button onClick={() => setShowArchived(true)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-mist">
+                                <span className="flex size-12 shrink-0 items-center justify-center text-leaf"><Archive size={22} /></span>
+                                <span className="flex-1 font-semibold">Archived</span>
+                                <span className="text-sm text-muted">{archived.length}</span>
+                            </button>
+                        )}
                         {shown.map((c) => (
-                            <button key={c.id} onClick={() => open(c.id)}
+                            <div key={c.id} className="group relative">
+                            <button onClick={() => open(c.id)} onContextMenu={(e) => { e.preventDefault(); setMenuFor({ id: c.id, x: e.clientX, y: e.clientY }); }}
                                 className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${c.id === activeId ? 'bg-mint/60' : 'hover:bg-mist'}`}>
                                 <ChatIcon c={c} size={48} />
                                 <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5">
@@ -373,10 +400,21 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                                             {c.last_message ? <>{c.type !== 'direct' && c.last_message.sender_id !== me.id && `${firstName(c.last_message.sender_name)}: `}{c.last_message.sender_id === me.id && 'You: '}{preview(c.last_message)}</>
                                                 : c.type === 'direct' ? 'Say hello' : `${c.member_count} members`}
                                         </span>
-                                        {c.unread > 0 && <span className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${c.muted ? 'bg-muted' : 'bg-sos'}`}>{c.unread >= 100 ? '99+' : c.unread}</span>}
+                                        <span className="flex shrink-0 items-center gap-1 text-muted">
+                                            {c.paused_after != null && <PauseCircle size={15} aria-label="Paused" />}
+                                            {c.muted && <BellOff size={15} aria-label="Muted" />}
+                                            {c.unread > 0 && <span className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${c.muted || c.archived ? 'bg-muted' : 'bg-sos'}`}>{c.unread >= 100 ? '99+' : c.unread}</span>}
+                                        </span>
                                     </div>
                                 </div>
                             </button>
+                            {(controls.mute || controls.archive || controls.pause) && (
+                                <button className="absolute top-1/2 right-2 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-muted shadow-sm group-hover:flex focus:flex"
+                                    aria-label={`Options for ${c.name}`} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenuFor({ id: c.id, x: r.right, y: r.bottom }); }}>
+                                    <ChevronDown size={18} />
+                                </button>
+                            )}
+                            </div>
                         ))}
                     </div>
                     </>)}
@@ -408,6 +446,12 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                                 </div>
                                 </button>
                                 <button className="icon-btn" onClick={() => { setSearching(!searching); setResults(null); setSearchQ(''); }} aria-label="Search this chat" title="Search this chat"><Search size={20} /></button>
+                                {(controls.mute || controls.archive || controls.pause) && (
+                                    <button className="icon-btn order-last" aria-label="Chat options" title="Mute, archive or pause"
+                                        onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenuFor({ id: active.id, x: r.right, y: r.bottom }); }}>
+                                        <EllipsisVertical size={20} />
+                                    </button>
+                                )}
                                 {active.peer && (
                                     <div className="flex">
                                         {canVoice && <button className="icon-btn" onClick={() => startCall(active.peer!, 'voice')} aria-label="Voice call" title="Voice call"><Phone size={20} /></button>}
@@ -451,6 +495,13 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                                             ))}
                                         </div>
                                     )}
+                                </div>
+                            )}
+                            {active.paused_after != null && (
+                                <div className="flex items-center gap-3 border-b border-line bg-amber/15 px-3 py-2 text-sm md:px-4">
+                                    <PauseCircle size={18} className="shrink-0 text-[#7a4d0b]" />
+                                    <span className="min-w-0 flex-1">You paused this chat. New messages are held back, with no alerts, until you resume.</span>
+                                    <button className="btn-outline shrink-0 px-3 py-1 text-xs" onClick={() => setChat(active, { paused: false })}><PlayCircle size={15} />Resume</button>
                                 </div>
                             )}
                             <div className="chat-canvas scroll-area min-h-0 flex-1 px-3 py-4 md:px-8">
@@ -540,6 +591,10 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                     )}
                 </section>
             </div>
+            {menuFor && (() => {
+                const c = conversations.find((x) => x.id === menuFor.id);
+                return c ? <ChatMenu c={c} x={menuFor.x} y={menuFor.y} controls={controls} onClose={() => setMenuFor(null)} onSet={(b) => setChat(c, b)} /> : null;
+            })()}
             {picker && <PeoplePicker mode={picker} onClose={() => setPicker(null)} onDone={async (id) => { setPicker(null); await loadConversations(); open(id); }} />}
             </>)}
         </AppLayout>
@@ -895,20 +950,50 @@ type ChatReq = { id: number; message: string | null; created_at: string; person:
 /** People asking to chat with me, at the top of the chat list. */
 function RequestsBar({ onOpen }: { onOpen: (conversationId: number) => void }) {
     const [incoming, setIncoming] = useState<ChatReq[]>([]);
+    const [answers, setAnswers] = useState<(ChatReq & { conversation_id: number | null; status: string })[]>([]);
     const [open, setOpen] = useState(false);
-    const load = useCallback(() => { api<{ incoming: ChatReq[] }>('/chat-requests').then((r) => setIncoming(r.incoming)).catch(() => {}); }, []);
+    const load = useCallback(() => {
+        api<{ incoming: ChatReq[]; responses?: (ChatReq & { conversation_id: number | null; status: string })[] }>('/chat-requests')
+            .then((r) => { setIncoming(r.incoming); setAnswers(r.responses ?? []); }).catch(() => {});
+    }, []);
     useEffect(() => {
         load();
-        const offs = [listenUser('chat_request.received', load), listenUser('chat_request.updated', load), onChange('conversations', load)];
+        const offs = ['received', 'updated', 'accepted', 'declined'].map((k) => listenUser(`chat_request.${k}`, load)).concat(onChange('conversations', load));
         return () => offs.forEach((f) => f());
     }, [load]);
-    if (!incoming.length) return null;
+    const seen = (ids: number[]) => {
+        setAnswers((l) => l.filter((x) => !ids.includes(x.id)));
+        api('/chat-requests/responses/seen', { body: { ids } }).then(() => refreshBadges()).catch(() => {});
+    };
+    const answerList = answers.length > 0 && (
+        <div className="mx-3 mb-2 overflow-hidden rounded-2xl border border-line bg-white">
+            <div className="flex items-center gap-2 px-3 pt-2.5 pb-1 text-sm font-semibold text-grove">
+                <span className="flex-1">Answers to your chat requests</span>
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-sos px-1.5 text-[11px] font-bold text-white">{answers.length}</span>
+            </div>
+            {answers.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 border-t border-line/60 px-3 py-2">
+                    <Avatar name={r.person.name} size={34} />
+                    <div className="min-w-0 flex-1 text-sm">
+                        <span className="font-semibold">{r.person.name}</span>{' '}
+                        {r.status === 'accepted' ? <span className="text-leaf">accepted. You can chat and call now.</span> : <span className="text-muted">can't chat right now.</span>}
+                    </div>
+                    {r.status === 'accepted' && r.conversation_id
+                        ? <button className="btn-primary shrink-0 px-3 py-1 text-xs" onClick={() => { seen([r.id]); onOpen(r.conversation_id!); }}>Open chat</button>
+                        : <button className="icon-btn shrink-0" aria-label="Dismiss" onClick={() => seen([r.id])}><X size={16} /></button>}
+                </div>
+            ))}
+        </div>
+    );
+    if (!incoming.length) return answerList || null;
     const answer = async (r: ChatReq, yes: boolean) => {
         const res = await api<{ conversation_id?: number }>(`/chat-requests/${r.id}/${yes ? 'accept' : 'decline'}`, { method: 'POST' }).catch(() => null);
         setIncoming((l) => l.filter((x) => x.id !== r.id));
         if (yes && res?.conversation_id) onOpen(res.conversation_id);
     };
     return (
+        <>
+        {answerList}
         <div className="mx-3 mb-2 overflow-hidden rounded-2xl border border-leaf/30 bg-mint/50">
             <button className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-semibold text-grove" onClick={() => setOpen(!open)} aria-expanded={open}>
                 <UserPlus size={17} /><span className="flex-1">Chat requests</span>
@@ -929,6 +1014,54 @@ function RequestsBar({ onOpen }: { onOpen: (conversationId: number) => void }) {
                     </div>
                 </div>
             ))}
+        </div>
+        </>
+    );
+}
+
+/** Mute (8 hours, a week, always), archive and pause for one chat. Each can be switched off by the institution. */
+function ChatMenu({ c, x, y, controls, onClose, onSet }: {
+    c: ConversationSummary; x: number; y: number; controls: { mute: boolean; archive: boolean; pause: boolean };
+    onClose: () => void; onSet: (body: Record<string, unknown>) => void;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && onClose();
+        const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+        setTimeout(() => document.addEventListener('mousedown', away));
+        document.addEventListener('keydown', esc);
+        return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+    }, [onClose]);
+    const left = Math.max(8, Math.min(x - 232, window.innerWidth - 248));
+    const top = Math.min(y + 4, window.innerHeight - 300);
+    const row = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm hover:bg-mist';
+    const until = c.muted_until ? new Date(c.muted_until) : null;
+    return (
+        <div ref={ref} role="menu" aria-label={`Options for ${c.name}`} style={{ left, top }}
+            className="fade-in fixed z-50 w-60 rounded-2xl border border-line bg-white p-1.5 shadow-[0_12px_32px_rgba(14,59,46,0.18)]">
+            {controls.mute && (c.muted ? (
+                <button role="menuitem" className={row} onClick={() => onSet({ muted: false })}>
+                    <BellOff size={17} className="text-muted" /><span>Unmute{until ? <span className="block text-xs text-muted">Muted until {until.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span> : null}</span>
+                </button>
+            ) : (<>
+                <div className="px-3 pt-1.5 pb-1 text-xs font-semibold text-muted uppercase">Mute alerts</div>
+                <div className="flex gap-1 px-2 pb-1.5">
+                    {([[8, '8 hours'], [168, '1 week'], [null, 'Always']] as const).map(([h, label]) => (
+                        <button key={label} role="menuitem" className="flex-1 rounded-lg bg-mist px-1 py-1.5 text-xs font-medium hover:bg-mint" onClick={() => onSet({ muted: true, mute_hours: h })}>{label}</button>
+                    ))}
+                </div>
+            </>))}
+            {controls.archive && (
+                <button role="menuitem" className={row} onClick={() => onSet({ archived: !c.archived })}>
+                    {c.archived ? <><ArchiveRestore size={17} className="text-muted" />Unarchive</> : <><Archive size={17} className="text-muted" />Archive</>}
+                </button>
+            )}
+            {controls.pause && (
+                <button role="menuitem" className={row} onClick={() => onSet({ paused: c.paused_after == null })}>
+                    {c.paused_after != null ? <><PlayCircle size={17} className="text-muted" />Resume messages</>
+                        : <><PauseCircle size={17} className="text-muted" /><span>Pause messages<span className="block text-xs text-muted">Hold new messages until you resume</span></span></>}
+                </button>
+            )}
         </div>
     );
 }

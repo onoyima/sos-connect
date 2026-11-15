@@ -9,11 +9,23 @@ use App\Models\User;
  * Who a notice or safety check is for:
  *   {"type":"all"} | {"type":"students"} | {"type":"staff"} | {"type":"parents"}
  *   {"type":"unit","id":12,"who":"all|students|staff"}  (a faculty, department or admin unit, and everything inside it)
+ *   Students can be narrowed to one level: {"type":"students","level":300} or {"type":"unit","id":12,"who":"students","level":300}
  * Older {"type":"department"|"faculty","id":12} values are read as "unit".
  */
 final class Audience
 {
     public static function normalise(array $a): array
+    {
+        $level = isset($a['level']) && (int) $a['level'] > 0 ? (int) $a['level'] : null;
+        $out = self::normaliseBase($a);
+        if ($level && ($out['type'] === 'students' || ($out['type'] === 'unit' && $out['who'] === 'students'))) {
+            $out['level'] = $level;
+        }
+
+        return $out;
+    }
+
+    private static function normaliseBase(array $a): array
     {
         $type = $a['type'] ?? 'all';
         if (in_array($type, ['department', 'faculty'], true)) {
@@ -29,6 +41,9 @@ final class Audience
     public static function includes(array $a, User $u): bool
     {
         $a = self::normalise($a);
+        if (isset($a['level']) && ((int) $u->level !== $a['level'] || $u->member_type !== 'student')) {
+            return false;
+        }
 
         return match ($a['type']) {
             'all' => true,
@@ -80,6 +95,11 @@ final class Audience
     public static function describe(array $a): string
     {
         $a = self::normalise($a);
+        if (isset($a['level'])) {
+            $base = self::describe(array_diff_key($a, ['level' => 1]));
+
+            return "{$base}, {$a['level']} level";
+        }
         if ($a['type'] !== 'unit') {
             return ['all' => 'Everyone', 'students' => 'All students', 'staff' => 'All staff', 'parents' => 'Parents and guardians'][$a['type']];
         }

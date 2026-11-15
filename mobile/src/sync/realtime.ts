@@ -1,3 +1,4 @@
+import { refreshBroadcasts } from '@/broadcasts/store';
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 import { AppState } from 'react-native';
@@ -80,11 +81,12 @@ export async function connectRealtime(onChange: () => void) {
     for (const kind of SIGNALS) user.listen(`.${kind}`, (e: any) => deliver(kind, e));
 
     const inst = echo.private(`institution.${id.institutionId}`);
-    inst.listen('.announcement.published', change).listen('.safety_check.issued', change);
+    inst.listen('.announcement.published', change).listen('.safety_check.issued', change)
+        .listen('.broadcast.changed', () => { refreshBroadcasts(); });
 }
 
 const SIGNALS = ['call.incoming', 'call.signal', 'call.state', 'groupcall.ring', 'groupcall.joined', 'groupcall.left', 'groupcall.signal',
-    'status.tagged', 'status.reacted', 'status.commented', 'chat_request.received', 'chat_request.accepted', 'chat_request.updated', 'session.replaced'] as const;
+    'status.tagged', 'status.reacted', 'status.commented', 'chat_request.received', 'chat_request.accepted', 'chat_request.declined', 'chat_request.updated', 'session.replaced'] as const;
 
 /** One person's signal, from the websocket or the regular check; each is handled once. */
 function deliver(kind: string, e: any) {

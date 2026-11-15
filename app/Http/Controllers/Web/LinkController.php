@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 /**
  * "Link with your phone" on the sign-in page (like WhatsApp Web): the page shows a QR code, the phone app scans
- * it and approves, and this browser is signed in as that person. Only the browser that asked can use the code.
+ * it and approves, and this browser is signed in as that person. Only the browser that asked (it holds a secret key that is never shown) can use the approval.
  */
 class LinkController extends Controller
 {
@@ -22,21 +22,23 @@ class LinkController extends Controller
     {
         WebLink::where('expires_at', '<', now()->subHour())->delete(); // tidy up old codes
 
+        $key = Str::random(40); // stays inside the page (never in the QR code), so only this browser can use the approval
         $link = WebLink::create([
             'code' => Str::random(48),
-            'browser' => $this->browser($request),
+            'browser' => hash('sha256', 'link|'.$key),
             'ip' => $request->ip(),
             'agent' => Str::limit((string) $request->userAgent(), 185, ''),
             'expires_at' => now()->addSeconds(self::TTL),
         ]);
 
-        return response()->json(['code' => $link->code, 'qr' => 'sos-link:'.$link->code, 'expires_in' => self::TTL]);
+        return response()->json(['code' => $link->code, 'key' => $key, 'qr' => 'sos-link:'.$link->code, 'expires_in' => self::TTL]);
     }
 
     /** The waiting page asks every couple of seconds; once the phone has approved, this browser is signed in. */
     public function check(Request $request, string $code): JsonResponse
     {
-        $link = WebLink::where('code', $code)->where('browser', $this->browser($request))->first();
+        $key = (string) $request->header('X-Link-Key');
+        $link = $key === '' ? null : WebLink::where('code', $code)->where('browser', hash('sha256', 'link|'.$key))->first();
         if (! $link || $link->status === 'used') {
             return response()->json(['status' => 'expired']);
         }
@@ -56,10 +58,5 @@ class LinkController extends Controller
         DeviceSessions::claimWeb($user, $request, 'qr');
 
         return response()->json(['status' => 'linked', 'redirect' => AuthController::home($user)->getTargetUrl()]);
-    }
-
-    private function browser(Request $request): string
-    {
-        return hash('sha256', 'link|'.$request->session()->getId());
     }
 }

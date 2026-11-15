@@ -93,7 +93,8 @@ class AnnouncementController extends Controller
         return [
             'id' => $a->id, 'title' => $a->title, 'body' => $a->body, 'priority' => $a->priority,
             'audience' => $a->audience, 'audience_label' => Audience::describe($a->audience),
-            'author' => $a->author ? ['name' => $a->author->name, 'title' => $a->author->title] : null,
+            // Roles are never shown to others: the author's own role label only to themselves.
+            'author' => $a->author ? ['name' => $a->author->name, 'title' => $a->author_id === $me->id ? $a->author->title : null] : null,
             'published_at' => $a->published_at?->toIso8601String(),
             'can_edit' => $canEdit,
             'can_delete' => $a->author_id === $me->id || Audience::allowed($me, $a->audience, 'announcements.delete'),

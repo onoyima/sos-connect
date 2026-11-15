@@ -6,10 +6,32 @@ use Illuminate\Support\Facades\Route;
 // Public (rate limited)
 Route::post('/auth/login', [Api\AuthController::class, 'login'])->middleware('throttle:20,1');
 
+// Face capture inside the phone app: the ticket stands in for the sign-in (see FaceController).
+Route::prefix('face/t/{ticket}')->where(['ticket' => '[A-Za-z0-9]{48}'])->middleware('throttle:60,1')->group(function () {
+    Route::get('/', [Api\FaceController::class, 'show']);
+    Route::post('/start', [Api\FaceController::class, 'start']);
+    Route::post('/{uuid}/captures', [Api\FaceController::class, 'capture'])->whereUuid('uuid');
+    Route::post('/{uuid}/complete', [Api\FaceController::class, 'complete'])->whereUuid('uuid');
+    Route::get('/captures/{id}/image', [Api\FaceController::class, 'image'])->whereNumber('id');
+    Route::delete('/', [Api\FaceController::class, 'destroy']);
+});
+
 Route::middleware(['auth:sanctum', 'member', 'throttle:api'])->group(function () {
     Route::post('/auth/logout', [Api\AuthController::class, 'logout']);
     Route::get('/me', [Api\MeController::class, 'show']);
     Route::get('/linked-devices', [Api\LinkedDevicesController::class, 'show']);
+    Route::get('/broadcasts/active', [Api\BroadcastController::class, 'active']);
+    Route::get('/help', [Api\HelpController::class, 'index']);
+    Route::get('/help/{slug}', [Api\HelpController::class, 'show'])->where('slug', '[a-z0-9-]+');
+
+    // Face capture (website; the phone app gets a ticket and opens the same page)
+    Route::get('/face', [Api\FaceController::class, 'show']);
+    Route::post('/face/start', [Api\FaceController::class, 'start'])->middleware('throttle:20,1');
+    Route::post('/face/{uuid}/captures', [Api\FaceController::class, 'capture'])->whereUuid('uuid');
+    Route::post('/face/{uuid}/complete', [Api\FaceController::class, 'complete'])->whereUuid('uuid');
+    Route::get('/face/captures/{id}/image', [Api\FaceController::class, 'image'])->whereNumber('id');
+    Route::delete('/face', [Api\FaceController::class, 'destroy']);
+    Route::post('/face/ticket', [Api\FaceController::class, 'ticket'])->middleware('throttle:20,1');
     Route::post('/linked-devices/web', [Api\LinkedDevicesController::class, 'approve'])->middleware('throttle:20,1');
     Route::delete('/linked-devices/web', [Api\LinkedDevicesController::class, 'destroyWeb']);
     Route::get('/pulse', Api\PulseController::class);
@@ -54,6 +76,7 @@ Route::middleware(['auth:sanctum', 'member', 'throttle:api'])->group(function ()
     Route::post('/chat-requests', [Api\ChatRequestController::class, 'store'])->middleware('throttle:20,1');
     Route::post('/chat-requests/{id}/accept', [Api\ChatRequestController::class, 'accept'])->whereNumber('id');
     Route::post('/chat-requests/{id}/decline', [Api\ChatRequestController::class, 'decline'])->whereNumber('id');
+    Route::post('/chat-requests/responses/seen', [Api\ChatRequestController::class, 'seen']);
     Route::delete('/chat-requests/{id}', [Api\ChatRequestController::class, 'cancel'])->whereNumber('id');
     });
 

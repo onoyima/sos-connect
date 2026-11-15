@@ -62,6 +62,12 @@ async function migrate(d: SQLite.SQLiteDatabase) {
         }
         await d.execAsync('PRAGMA user_version = 3');
     }
+    if (v < 4) {
+        for (const col of ['archived INTEGER DEFAULT 0', 'paused_after INTEGER', 'muted_until TEXT']) {
+            await d.execAsync(`ALTER TABLE conversations ADD COLUMN ${col}`).catch(() => { /* already there */ });
+        }
+        await d.execAsync('PRAGMA user_version = 4');
+    }
 }
 
 export async function kvGet<T>(key: string): Promise<T | null> {

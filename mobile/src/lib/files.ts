@@ -35,6 +35,25 @@ export async function pickPhoto(camera = false): Promise<Picked | null> {
     return { uri: a.uri, name: a.fileName ?? `photo-${Date.now()}.jpg`, mime: a.mimeType ?? 'image/jpeg', size: a.fileSize };
 }
 
+/** A video for a status (from the gallery, or recorded now), up to a minute. */
+export async function pickVideo(camera = false): Promise<Picked | null> {
+    const perm = camera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return null;
+    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['videos'], videoMaxDuration: 60, quality: 0.7 };
+    const r = camera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
+    if (r.canceled || !r.assets[0]) return null;
+    const a = r.assets[0];
+    return { uri: a.uri, name: a.fileName ?? `video-${Date.now()}.mp4`, mime: a.mimeType ?? 'video/mp4', size: a.fileSize };
+}
+
+/** An audio file (music, a recording) for a status. */
+export async function pickAudio(): Promise<Picked | null> {
+    const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false, type: 'audio/*' });
+    if (r.canceled || !r.assets[0]) return null;
+    const a = r.assets[0];
+    return { uri: a.uri, name: a.name, mime: a.mimeType ?? 'audio/mpeg', size: a.size };
+}
+
 export async function pickDocument(): Promise<Picked | null> {
     const r = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     if (r.canceled || !r.assets[0]) return null;

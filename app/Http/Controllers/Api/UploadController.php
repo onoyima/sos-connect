@@ -16,7 +16,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class UploadController extends Controller
 {
     private const ALLOWED = [
-        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp',
+        'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif',
+        'video/quicktime' => 'mov', 'video/3gpp' => '3gp',
         'audio/mp4' => 'm4a', 'audio/x-m4a' => 'm4a', 'audio/aac' => 'aac', 'audio/ogg' => 'ogg', 'audio/mpeg' => 'mp3', 'video/mp4' => 'mp4',
         // Voice notes recorded in a browser (Chrome, Edge, Firefox). Audio-only webm is often reported as video/webm.
         'audio/webm' => 'webm', 'video/webm' => 'webm',
@@ -29,7 +30,7 @@ class UploadController extends Controller
         $voice = str_starts_with((string) $request->file('file')?->getMimeType(), 'audio/') || str_starts_with((string) $request->file('file')?->getMimeType(), 'video/webm');
         abort_unless(\App\Support\Access::can($me, 'chat.files') || \App\Support\Access::can($me, 'status.post')
             || ($voice && \App\Support\Access::can($me, 'chat.use') && \App\Support\Modules::enabled($me->institution, 'voice_notes')), 403, 'Sending files is turned off.');
-        $request->validate(['file' => 'required|file|max:15360']);
+        $request->validate(['file' => 'required|file|max:51200']); // 50 MB (status videos); photos and voice notes are far smaller
         $file = $request->file('file');
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file->getRealPath());
         abort_unless(isset(self::ALLOWED[$mime]), 415, 'This file type is not allowed.');

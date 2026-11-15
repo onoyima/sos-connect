@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MarqueeStrip } from '@/broadcasts/Marquee';
 import { colors, ui } from './theme';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -31,6 +32,7 @@ export function Avatar({ name, size = 48, icon }: { name: string; size?: number;
 export function TopBar({ title, subtitle, right, left }: { title: string; subtitle?: string | null; right?: ReactNode; left?: ReactNode }) {
     const insets = useSafeAreaInsets();
     return (
+        <>
         <View style={{ backgroundColor: colors.grove, paddingTop: insets.top + 8, paddingBottom: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             {left}
             <View style={{ flex: 1 }}>
@@ -39,6 +41,8 @@ export function TopBar({ title, subtitle, right, left }: { title: string; subtit
             </View>
             <View style={ui.row}>{right}</View>
         </View>
+        <MarqueeStrip />
+        </>
     );
 }
 
@@ -133,6 +137,7 @@ export function Fab({ icon, onPress, label }: { icon: IconName; onPress: () => v
 export function BackBar({ title, subtitle, right, onTitlePress, avatar }: { title: string; subtitle?: string | null; right?: ReactNode; onTitlePress?: () => void; avatar?: ReactNode }) {
     const insets = useSafeAreaInsets();
     return (
+        <>
         <View style={{ backgroundColor: colors.grove, paddingTop: insets.top + 6, paddingBottom: 10, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <IconButton name="arrow-back" label="Back" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
             <Pressable onPress={onTitlePress} disabled={!onTitlePress} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -144,5 +149,7 @@ export function BackBar({ title, subtitle, right, onTitlePress, avatar }: { titl
             </Pressable>
             <View style={[ui.row, { gap: 4, paddingRight: 6 }]}>{right}</View>
         </View>
+        <MarqueeStrip />
+        </>
     );
 }

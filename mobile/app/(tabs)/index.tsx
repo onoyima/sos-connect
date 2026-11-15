@@ -10,6 +10,7 @@ import { db } from '@/db/database';
 import { on } from '@/lib/events';
 import { SyncEngine } from '@/sync/SyncEngine';
 import { ChatListItem, type ChatRow } from '@/chat/ChatListItem';
+import { chatOptions } from '@/chat/controls';
 import { EmptyState, Fab, Icon, IconButton, OfflineBanner, Pill, TopBar } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
 
@@ -41,9 +42,14 @@ export default function Chats() {
     const [filter, setFilter] = useState<'all' | 'unread' | 'groups' | 'direct'>('all');
     const [q, setQ] = useState('');
     const [requests, setRequests] = useState<ChatRequest[]>([]);
+    const [answers, setAnswers] = useState<(ChatRequest & { status: string; conversation_id: number | null })[]>([]);
     const [missed, setMissed] = useState(currentBadges().calls);
+    const [faceLater, setFaceLater] = useState(false);
     useEffect(() => on('badges', (b) => setMissed(b.calls)), []);
-    const loadRequests = useCallback(() => { if (SyncEngine.online && can('chat.use')) fetchRequests().then((r) => setRequests(r.incoming)).catch(() => {}); }, [can]);
+    const loadRequests = useCallback(() => {
+        if (SyncEngine.online && can('chat.use')) fetchRequests().then((r) => { setRequests(r.incoming); setAnswers((r as any).responses ?? []); }).catch(() => {});
+    }, [can]);
+    const answerSeen = (id: number) => { setAnswers((l) => l.filter((x) => x.id !== id)); api('/chat-requests/responses/seen', { body: { ids: [id] } }).catch(() => {}); };
     useFocusEffect(useCallback(() => { loadRequests(); }, [loadRequests]));
     useEffect(() => on('chatRequest', loadRequests), [loadRequests]);
     const answer = async (r: ChatRequest, yes: boolean) => {
@@ -64,16 +70,18 @@ export default function Chats() {
         return () => { a(); b(); };
     }, [load]);
 
-    const shown = useMemo(() => rows.filter((r) =>
+    const [showArchived, setShowArchived] = useState(false);
+    const archivedCount = rows.filter((r) => r.archived).length;
+    const shown = useMemo(() => rows.filter((r) => (showArchived ? !!r.archived : !r.archived) &&
         (filter === 'all' || (filter === 'unread' && r.unread > 0) || (filter === 'groups' && r.type !== 'direct') || (filter === 'direct' && r.type === 'direct'))
-        && (!q.trim() || r.name.toLowerCase().includes(q.trim().toLowerCase()))), [rows, filter, q]);
+        && (!q.trim() || r.name.toLowerCase().includes(q.trim().toLowerCase()))), [rows, filter, q, showArchived]);
 
     const canStart = (has('direct_chat') && can('chat.direct')) || (has('custom_groups') && can('groups.create'));
 
     if (!can('chat.use')) {
         return (
             <View style={ui.screen}>
-                <TopBar title="Chats" subtitle={me?.institution?.name} />
+                <TopBar title={`Chats${me?.branding?.season ? ` ${me.branding.season.badge}` : ''}`} subtitle={me?.branding?.season ? `Happy ${me.branding.season.label} · ${me?.institution?.name ?? ''}` : me?.institution?.name} />
                 <EmptyState icon="lock-closed-outline" title="Chat isn't on for your account yet">
                     {me?.needs_guardian_consent
                         ? 'You are under 18, so your institution has to record your parent or guardian\'s consent first. SOS works now.'
@@ -85,7 +93,7 @@ export default function Chats() {
 
     return (
         <View style={ui.screen}>
-            <TopBar title="Chats" subtitle={me?.institution?.name}
+            <TopBar title={`Chats${me?.branding?.season ? ` ${me.branding.season.badge}` : ''}`} subtitle={me?.branding?.season ? `Happy ${me.branding.season.label} · ${me?.institution?.name ?? ''}` : me?.institution?.name}
                 right={<>
                     {(has('voice_calls') || has('video_calls')) && (
                         <View>
@@ -100,6 +108,13 @@ export default function Chats() {
                     <IconButton name="radio-outline" label="Nearby phones" onPress={() => router.push('/nearby')} />
                 </>} />
             {!online && <OfflineBanner onPress={() => router.push('/nearby')} />}
+            {me?.face?.required && !me.face.done && can('face.capture') && !faceLater && (
+                <Pressable onPress={() => router.push('/face-capture')} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fbe8c4', paddingHorizontal: 14, paddingVertical: 10 }}>
+                    <Icon name="scan-outline" size={20} color="#7a4d0b" />
+                    <Text style={{ flex: 1, color: colors.ink, fontWeight: '600' }}>Your institution asks everyone to capture their face. Tap to start.</Text>
+                    <IconButton name="close" color="#7a4d0b" label="Remind me later" onPress={() => setFaceLater(true)} size={18} />
+                </Pressable>
+            )}
             <View style={{ backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, gap: 10 }}>
                 <View style={[ui.row, { backgroundColor: colors.mist, borderRadius: 999, paddingHorizontal: 14 }]}>
                     <Icon name="search" size={18} color={colors.muted} />
@@ -112,6 +127,22 @@ export default function Chats() {
                     {has('direct_chat') && <Pill label="Private" active={filter === 'direct'} onPress={() => setFilter('direct')} />}
                 </View>
             </View>
+            {answers.length > 0 && (
+                <View style={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: colors.line }}>
+                    <Text style={{ fontWeight: '700', color: colors.grove, paddingHorizontal: 16, paddingTop: 10 }}>Answers to your chat requests</Text>
+                    {answers.map((r) => (
+                        <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 8 }}>
+                            <Avatar name={r.person.name} size={36} />
+                            <Text style={[ui.text, { flex: 1 }]} numberOfLines={2}>
+                                <Text style={{ fontWeight: '700' }}>{r.person.name}</Text>{r.status === 'accepted' ? ' accepted. You can chat now.' : " can't chat right now."}
+                            </Text>
+                            {r.status === 'accepted' && r.conversation_id
+                                ? <Pressable onPress={async () => { answerSeen(r.id); await SyncEngine.refreshConversations(); router.push(`/chat/${r.conversation_id}`); }} style={{ backgroundColor: colors.leaf, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 }}><Text style={{ color: '#fff', fontWeight: '700' }}>Open</Text></Pressable>
+                                : <IconButton name="close" color={colors.muted} label="Dismiss" onPress={() => answerSeen(r.id)} size={18} />}
+                        </View>
+                    ))}
+                </View>
+            )}
             {requests.length > 0 && (
                 <View style={{ backgroundColor: colors.mint, paddingVertical: 6 }}>
                     <Text style={{ fontWeight: '700', color: colors.grove, paddingHorizontal: 16, paddingVertical: 6 }}>Chat requests · {requests.length}</Text>
@@ -141,7 +172,16 @@ export default function Chats() {
                     : rows.length === 0
                     ? <EmptyState icon="chatbubbles-outline" title="Your groups will appear here">They're set up from your faculty, department, level and courses after the first sync.</EmptyState>
                     : <EmptyState icon="search" title="Nothing matches" />}
-                renderItem={({ item }) => <ChatListItem item={item} meId={me?.id} onPress={() => router.push(`/chat/${item.id}`)} />}
+                ListHeaderComponent={showArchived
+                    ? <Pressable onPress={() => setShowArchived(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 }}>
+                        <Icon name="arrow-back" size={22} color={colors.leaf} /><Text style={{ fontWeight: '700', color: colors.leaf, fontSize: 15 }}>Archived chats</Text></Pressable>
+                    : archivedCount > 0
+                        ? <Pressable onPress={() => setShowArchived(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 }}>
+                            <View style={{ width: 48, alignItems: 'center' }}><Icon name="archive-outline" size={22} color={colors.leaf} /></View>
+                            <Text style={{ flex: 1, fontWeight: '700', color: colors.ink, fontSize: 16 }}>Archived</Text>
+                            <Text style={ui.small}>{archivedCount}</Text></Pressable>
+                        : null}
+                renderItem={({ item }) => <ChatListItem item={item} meId={me?.id} onPress={() => router.push(`/chat/${item.id}`)} onLongPress={() => chatOptions(item, has, load)} />}
             />
             {canStart && <Fab icon="chatbox-ellipses" label="New chat" onPress={() => router.push('/new-chat')} />}
         </View>

@@ -118,7 +118,7 @@ class ConnectorClient
     }
 
     /** The records connection must never point at this app's own database. */
-    private static function refuseOwnDatabase(array $db): void
+    public static function refuseOwnDatabase(array $db): void
     {
         $own = config('database.connections.'.config('database.default'));
         $sameDb = mb_strtolower((string) ($db['database'] ?? '')) === mb_strtolower((string) ($own['database'] ?? ''));

@@ -1,6 +1,6 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, CircleDot, Eye, Heart, ImagePlus, MessageCircle, Palette, Pause, Play, Send, ThumbsUp, Trash2, UserPlus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CircleDot, Eye, EyeOff, Heart, Music, ImagePlus, MessageCircle, Palette, Pause, Play, Send, ThumbsUp, Trash2, UserPlus, X } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Avatar, EmptyState, PageBody, PageHeader, when } from '@/components/ui';
 import { onChange } from '@/lib/live';
@@ -10,14 +10,19 @@ import type { SharedProps } from '@/types';
 type Person = { id: number; name: string; title?: string | null };
 type Reactions = { like: number; love: number };
 type Status = {
-    id: number; user: Person; body: string | null; media_path: string | null; background: string | null; audience: string | null;
+    id: number; user: Person; body: string | null; media_path: string | null; media_type?: 'image' | 'gif' | 'video' | 'audio' | null; background: string | null; audience: string | null;
     mentions: Person[]; comment_count: number; reactions: Reactions; my_reaction: 'like' | 'love' | null; view_count: number | null;
     expires_at: string; created_at: string; viewed: boolean;
 };
 type Comment = { id: number; user: Person; body: string; reply_to: { id: number; name: string | null; body: string } | null; created_at: string; can_delete: boolean };
 type Viewer = { id: number; name: string; viewed_at: string; reaction: 'like' | 'love' | null };
 
-const AUDIENCE: Record<string, string> = { contacts: 'People I chat with', department: 'My department', institution: 'Everyone in my institution' };
+const AUDIENCE: Record<string, string> = {
+    contacts: 'People I have chatted with', department: 'My department', faculty: 'My faculty', groups: 'Groups I choose',
+    selected: 'People I choose', institution: 'Everyone in my institution',
+};
+type MediaKind = 'image' | 'gif' | 'video' | 'audio';
+const kindOf = (f: File): MediaKind | null => f.type === 'image/gif' ? 'gif' : f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : null;
 const COLOURS = ['#0e3b2e', '#1e7b57', '#173a5c', '#5a3d0c', '#7a2433', '#3f2a5c', '#134540'];
 const SHOW_MS = 7000;
 
@@ -140,8 +145,12 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
     const [body, setBody] = useState('');
     const [audience, setAudience] = useState('contacts');
     const [colour, setColour] = useState(0);
-    const [photo, setPhoto] = useState<{ file: File; url: string } | null>(null);
+    const [photo, setPhoto] = useState<{ file: File; url: string; kind: MediaKind } | null>(null);
     const [tags, setTags] = useState<Person[]>([]);
+    const [groupIds, setGroupIds] = useState<number[]>([]);
+    const [people, setPeople] = useState<Person[]>([]);
+    const [hidden, setHidden] = useState<Person[]>([]);
+    const [hiding, setHiding] = useState(false);
     const [tagging, setTagging] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -150,10 +159,11 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
 
     const pick = (f: File | undefined) => {
         if (!f) return;
-        if (!f.type.startsWith('image/')) { setError('Choose a photo (JPG, PNG or WebP).'); return; }
-        if (f.size > 15 * 1024 * 1024) { setError('That photo is too big (15 MB at most).'); return; }
+        const kind = kindOf(f);
+        if (!kind) { setError('Choose a photo, GIF, video or audio file.'); return; }
+        if (f.size > 50 * 1024 * 1024) { setError('That file is too big (50 MB at most).'); return; }
         setError(null);
-        setPhoto({ file: f, url: URL.createObjectURL(f) });
+        setPhoto({ file: f, url: URL.createObjectURL(f), kind });
     };
 
     const share = async () => {
@@ -166,15 +176,19 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
                 form.append('file', photo.file);
                 media_path = (await api<{ path: string }>('/uploads', { form })).path;
             }
-            await api('/status', { body: { body: body.trim() || null, media_path, audience, background: photo ? null : COLOURS[colour], mentions: tags.map((t) => t.id) } });
-            setBody(''); setPhoto(null); setTags([]); setTagging(false);
+            await api('/status', { body: {
+                body: body.trim() || null, media_path, audience, background: photo && photo.kind !== 'audio' ? null : COLOURS[colour], mentions: tags.map((t) => t.id),
+                group_ids: audience === 'groups' ? groupIds : undefined, people: audience === 'selected' ? people.map((p) => p.id) : undefined,
+                hidden: hidden.map((p) => p.id),
+            } });
+            setBody(''); setPhoto(null); setTags([]); setTagging(false); setHidden([]); setHiding(false);
             onPosted();
         } catch (e) {
             setError((e as Error).message);
         } finally { setBusy(false); }
     };
 
-    const ready = !!body.trim() || !!photo;
+    const ready = (!!body.trim() || !!photo) && (audience !== 'groups' || groupIds.length > 0) && (audience !== 'selected' || people.length > 0);
     return (
         <div className="rounded-2xl bg-white p-4">
             <div className="flex gap-3">
@@ -191,7 +205,9 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
                     <div className="relative overflow-hidden rounded-2xl bg-black">
                         {photo ? (
                             <>
-                                <img src={photo.url} alt="Your photo" className="mx-auto max-h-80 w-full object-contain" />
+                                {photo.kind === 'video' ? <video src={photo.url} controls playsInline className="mx-auto max-h-80 w-full bg-black" />
+                                    : photo.kind === 'audio' ? <div className="flex min-h-32 flex-col items-center justify-center gap-3 p-6" style={{ background: COLOURS[colour] }}><audio src={photo.url} controls className="w-full max-w-sm" /></div>
+                                        : <img src={photo.url} alt="Your photo" className="mx-auto max-h-80 w-full object-contain" />}
                                 {body.trim() && <p className="bg-black/60 px-4 py-2 text-center text-[15px] break-words whitespace-pre-wrap text-white">{body}</p>}
                                 <button className="absolute top-2 right-2 flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80" onClick={() => setPhoto(null)} aria-label="Remove photo"><X size={18} /></button>
                             </>
@@ -207,10 +223,13 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
             {error && <p role="alert" className="mt-2 text-sm text-sos">{error}</p>}
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-                <label className="btn-ghost cursor-pointer"><ImagePlus size={18} />Photo
-                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+                <label className="btn-ghost cursor-pointer"><ImagePlus size={18} />Photo, GIF or video
+                    <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" className="hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
                 </label>
-                {!photo && (
+                <label className="btn-ghost cursor-pointer"><Music size={18} />Audio
+                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+                </label>
+                {(!photo || photo.kind === 'audio') && (
                     <button type="button" className="btn-ghost" onClick={() => setColour((c) => (c + 1) % COLOURS.length)} aria-label="Change background colour">
                         <Palette size={18} /><span className="size-4 rounded-full ring-1 ring-line" style={{ background: COLOURS[colour] }} />
                     </button>
@@ -219,14 +238,38 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
                 <select className="input w-auto max-w-full py-1.5 text-sm" value={audience} onChange={(e) => setAudience(e.target.value)} aria-label="Who can see this">
                     {Object.entries(AUDIENCE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
+                <button type="button" className={`btn-ghost ${hiding ? 'bg-mist' : ''}`} onClick={() => setHiding(!hiding)}><EyeOff size={18} />Hide from{hidden.length ? ` (${hidden.length})` : ''}</button>
                 <button className="btn-primary ml-auto" disabled={!ready || busy} onClick={share}>{busy ? 'Sharing…' : 'Share'}</button>
             </div>
+            {audience === 'groups' && <GroupChooser chosen={groupIds} onChange={setGroupIds} />}
+            {audience === 'selected' && <div><p className="mt-3 text-sm font-medium">Share only with</p><TagPicker chosen={people} onChange={setPeople} placeholder="Search for people to share with" /></div>}
+            {hiding && <div><p className="mt-3 text-sm font-medium">Don't show this update to</p><TagPicker chosen={hidden} onChange={setHidden} placeholder="Search for people to hide it from" /></div>}
             {tags.length > 0 && <p className="mt-2 text-xs text-muted">People you tag can see this update and are told about it, whoever else it's shared with.</p>}
         </div>
     );
 }
 
-function TagPicker({ chosen, onChange }: { chosen: Person[]; onChange: (p: Person[]) => void }) {
+/** "Groups I choose": the groups I'm in. */
+function GroupChooser({ chosen, onChange }: { chosen: number[]; onChange: (ids: number[]) => void }) {
+    const [groups, setGroups] = useState<{ id: number; name: string; member_count: number }[]>([]);
+    useEffect(() => { api<{ conversations: { id: number; name: string; type: string; member_count: number }[] }>('/conversations').then((r) => setGroups(r.conversations.filter((c) => c.type !== 'direct'))).catch(() => {}); }, []);
+    return (
+        <div className="mt-3 rounded-xl border border-line p-3">
+            <p className="mb-2 text-sm font-medium">Share with members of</p>
+            <div className="scroll-area max-h-52 space-y-1">
+                {groups.map((g) => (
+                    <label key={g.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-mist">
+                        <input type="checkbox" checked={chosen.includes(g.id)} onChange={(e) => onChange(e.target.checked ? [...chosen, g.id] : chosen.filter((x) => x !== g.id))} />
+                        <span className="min-w-0 flex-1 truncate">{g.name}</span><span className="text-xs text-muted">{g.member_count}</span>
+                    </label>
+                ))}
+                {groups.length === 0 && <p className="text-sm text-muted">You're not in any groups yet.</p>}
+            </div>
+        </div>
+    );
+}
+
+function TagPicker({ chosen, onChange, placeholder = 'Search for someone to tag' }: { chosen: Person[]; onChange: (p: Person[]) => void; placeholder?: string }) {
     const [q, setQ] = useState('');
     const [found, setFound] = useState<Person[]>([]);
     useEffect(() => {
@@ -243,7 +286,7 @@ function TagPicker({ chosen, onChange }: { chosen: Person[]; onChange: (p: Perso
                     </span>
                 ))}
             </div>
-            <input className="input mt-2" placeholder="Search for someone to tag" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            <input className="input mt-2" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
             {found.length > 0 && (
                 <ul className="scroll-area mt-1 max-h-52">
                     {found.filter((p) => !chosen.some((c) => c.id === p.id)).map((p) => (
@@ -277,7 +320,12 @@ function Viewer({ group, index, meId, onIndex, onNextPerson, onPrevPerson, onClo
     const [reply, setReply] = useState('');
     const [toast, setToast] = useState<{ text: string; chat?: number } | null>(null);
     const typing = reply.length > 0;
-    const hold = paused || panel !== null || typing;
+    const playable = s.media_path && (s.media_type === 'video' || s.media_type === 'audio');
+    const media = useRef<HTMLMediaElement | null>(null);
+    const [mediaMs, setMediaMs] = useState(SHOW_MS);
+    const hold = paused || panel !== null || typing || !!playable; // videos and audio move on when they finish
+    const total = playable ? mediaMs : SHOW_MS;
+    useEffect(() => { const m = media.current; if (!m) return; if (paused || panel || typing) m.pause(); else m.play().catch(() => {}); }, [paused, panel, typing, s.id]);
 
     const next = () => (index < group.list.length - 1 ? onIndex(index + 1) : onNextPerson());
     const prev = () => (index > 0 ? onIndex(index - 1) : onPrevPerson());
@@ -300,7 +348,7 @@ function Viewer({ group, index, meId, onIndex, onNextPerson, onPrevPerson, onClo
         const t = window.setInterval(() => setElapsed((e) => e + 100), 100);
         return () => window.clearInterval(t);
     }, [hold, s.id]);
-    useEffect(() => { if (elapsed >= SHOW_MS) next(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [elapsed]);
+    useEffect(() => { if (!playable && elapsed >= SHOW_MS) next(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [elapsed]);
 
     useEffect(() => {
         const key = (e: KeyboardEvent) => {
@@ -350,7 +398,7 @@ function Viewer({ group, index, meId, onIndex, onNextPerson, onPrevPerson, onClo
                 <div className="flex gap-1 px-3 pt-[calc(env(safe-area-inset-top)+10px)]">
                     {group.list.map((x, i) => (
                         <div key={x.id} className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/30">
-                            <div className="h-full bg-white" style={{ width: i < index ? '100%' : i > index ? '0%' : `${Math.min(100, (elapsed / SHOW_MS) * 100)}%` }} />
+                            <div className="h-full bg-white" style={{ width: i < index ? '100%' : i > index ? '0%' : `${Math.min(100, (elapsed / total) * 100)}%` }} />
                         </div>
                     ))}
                 </div>
@@ -367,7 +415,16 @@ function Viewer({ group, index, meId, onIndex, onNextPerson, onPrevPerson, onClo
 
                 {/* The update. Left third goes back, the rest goes forward. */}
                 <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-                    {s.media_path ? (
+                    {s.media_path && s.media_type === 'video' ? (
+                        <video key={s.id} ref={(el) => { media.current = el; }} src={fileUrl(s.media_path)} autoPlay playsInline className="relative z-10 max-h-full max-w-full"
+                            onLoadedMetadata={(e) => setMediaMs(Math.max(1000, e.currentTarget.duration * 1000))} onTimeUpdate={(e) => setElapsed(e.currentTarget.currentTime * 1000)} onEnded={next} />
+                    ) : s.media_path && s.media_type === 'audio' ? (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-5 p-8" style={{ background: s.background ?? COLOURS[0] }}>
+                            <Music size={56} className="opacity-80" />
+                            <audio key={s.id} ref={(el) => { media.current = el; }} src={fileUrl(s.media_path)} autoPlay controls className="relative z-10 w-full max-w-sm"
+                                onLoadedMetadata={(e) => setMediaMs(Math.max(1000, e.currentTarget.duration * 1000))} onTimeUpdate={(e) => setElapsed(e.currentTarget.currentTime * 1000)} onEnded={next} />
+                        </div>
+                    ) : s.media_path ? (
                         <img src={fileUrl(s.media_path)} alt={s.body ?? 'Photo status'} className="max-h-full max-w-full object-contain" />
                     ) : (
                         <div className="flex h-full w-full items-center justify-center p-8 text-center text-2xl leading-snug font-semibold break-words whitespace-pre-wrap" style={{ background: s.background ?? COLOURS[0] }}>{s.body}</div>

@@ -18,11 +18,12 @@ class ConversationMember extends Model
         'admins' => 'Make other people admins',
     ];
 
-    protected $fillable = ['conversation_id', 'user_id', 'role', 'admin_permissions', 'managed', 'added_by', 'last_read_message_id', 'muted', 'joined_at'];
+    protected $fillable = ['conversation_id', 'user_id', 'role', 'admin_permissions', 'managed', 'added_by', 'last_read_message_id', 'muted', 'joined_at', 'muted_until', 'archived_at', 'paused_after_message_id'];
 
     protected function casts(): array
     {
-        return ['managed' => 'boolean', 'muted' => 'boolean', 'joined_at' => 'datetime', 'admin_permissions' => 'array'];
+        return ['managed' => 'boolean', 'muted' => 'boolean', 'joined_at' => 'datetime', 'admin_permissions' => 'array',
+            'muted_until' => 'datetime', 'archived_at' => 'datetime'];
     }
 
     public function isAdmin(): bool
@@ -53,5 +54,18 @@ class ConversationMember extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** Muted right now (a timed mute ends by itself). */
+    public function isMuted(): bool
+    {
+        return $this->muted && (! $this->muted_until || $this->muted_until->isFuture());
+    }
+
+    /** Members who get alerts and red counts: not muted (or the mute ran out) and not paused. */
+    public static function alertable($query)
+    {
+        return $query->where(fn ($q) => $q->where('muted', false)->orWhere(fn ($r) => $r->whereNotNull('muted_until')->where('muted_until', '<=', now())))
+            ->whereNull('paused_after_message_id');
     }
 }

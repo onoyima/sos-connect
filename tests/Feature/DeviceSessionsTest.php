@@ -72,16 +72,16 @@ class DeviceSessionsTest extends TestCase
     {
         $member = $this->makeMember($this->makeInstitution());
 
-        $code = $this->postJson('/link')->assertOk()->json('code');
-        $sid = app('session.store')->getId();
+        ['code' => $code, 'key' => $key] = $this->postJson('/link')->assertOk()->json();
 
-        // Another browser can't use someone else's code.
+        // Another browser (without the page's secret key) can't use someone else's code.
         $this->getJson("/link/{$code}")->assertJsonPath('status', 'expired');
+        $this->getJson("/link/{$code}", ['X-Link-Key' => 'not-the-key'])->assertJsonPath('status', 'expired');
 
-        $this->withCookie(config('session.cookie'), $sid)->getJson("/link/{$code}")->assertJsonPath('status', 'pending');
+        $this->getJson("/link/{$code}", ['X-Link-Key' => $key])->assertJsonPath('status', 'pending');
 
         WebLink::where('code', $code)->update(['user_id' => $member->id, 'status' => 'approved', 'approved_at' => now()]);
-        $this->withCookie(config('session.cookie'), $sid)->getJson("/link/{$code}")->assertJsonPath('status', 'linked');
+        $this->getJson("/link/{$code}", ['X-Link-Key' => $key])->assertJsonPath('status', 'linked');
 
         $this->assertAuthenticatedAs($member, 'web');
         $this->assertSame('qr', $member->fresh()->web_session_via);

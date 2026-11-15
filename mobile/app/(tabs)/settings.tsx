@@ -73,9 +73,24 @@ export default function Me() {
                     {has('offline_mesh') && <Row icon="radio-outline" title="Offline and nearby" subtitle="Bluetooth and Wi-Fi relaying, phones around you" onPress={() => router.push('/nearby')} />}
                 </View>
 
+                {me?.face && me.permissions.includes('face.capture') && (
+                    <>
+                        <Text style={ui.sectionTitle}>Identity</Text>
+                        <View style={{ backgroundColor: '#fff' }}>
+                            <Row icon="scan-outline" title="Face capture" subtitle={me.face.done ? 'Captured. Tap to see or capture again.' : me.face.required ? 'Required by your institution. Takes about a minute.' : 'Optional. Takes about a minute.'}
+                                onPress={() => router.push('/face-capture')} />
+                        </View>
+                    </>
+                )}
+
                 <Text style={ui.sectionTitle}>Devices</Text>
                 <View style={{ backgroundColor: '#fff' }}>
                     <Row icon="desktop-outline" title="Linked devices" subtitle="Use SOS Connect on a computer: scan the code on the sign-in page" onPress={() => router.push('/linked-devices')} />
+                </View>
+
+                <Text style={ui.sectionTitle}>Help</Text>
+                <View style={{ backgroundColor: '#fff' }}>
+                    <Row icon="help-buoy-outline" title="Help" subtitle="How to use SOS Connect" onPress={() => router.push('/help')} />
                 </View>
 
                 <Text style={ui.sectionTitle}>Privacy</Text>

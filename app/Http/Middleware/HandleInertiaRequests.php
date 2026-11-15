@@ -26,9 +26,15 @@ class HandleInertiaRequests extends Middleware
                 'permissions' => $user->is_platform_admin ? ['platform.manage'] : Access::list($user),
                 'super' => Access::isSuper($user),
                 // Lets this page tell whether a "signed in on another browser" signal is about itself.
+                // Face capture is required here and this person hasn't done it yet: a reminder shows on every page.
+                'face_due' => fn () => $user->institution_id && \App\Support\Modules::enabled($institution, 'face_capture_required')
+                    && \App\Support\Access::can($user, 'face.capture')
+                    && ! \App\Models\FaceEnrollment::where('user_id', $user->id)->where('status', 'complete')->exists(),
                 'session_tag' => $request->hasSession() ? \App\Services\Auth\DeviceSessions::tag($request->session()->getId()) : null,
             ] : null,
             'modules' => $institution ? Modules::states($institution) : [],
+            // Favicon, chat icon and today's seasonal touch (Christmas, Easter, Eid…).
+            'branding' => \App\Support\Branding::forClient($institution),
             'institution' => $institution ? [
                 'id' => $institution->id, 'name' => $institution->name, 'short_code' => $institution->short_code,
                 'security_phone' => $institution->security_phone,

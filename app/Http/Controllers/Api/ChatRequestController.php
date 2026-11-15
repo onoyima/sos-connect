@@ -36,7 +36,23 @@ class ChatRequestController extends Controller
                 ->filter(fn ($r) => $r->sender && $r->sender->isActive())->map(fn ($r) => $present($r, $r->sender))->values(),
             'outgoing' => ChatRequest::with('recipient')->where('from_id', $me->id)->where('status', 'pending')->latest()->limit(100)->get()
                 ->filter(fn ($r) => $r->recipient)->map(fn ($r) => $present($r, $r->recipient))->values(),
+            // Answers to my requests I haven't looked at yet (accepted: open the chat; declined: they can't chat now).
+            'responses' => ChatRequest::with('recipient')->where('from_id', $me->id)->whereIn('status', ['accepted', 'declined'])
+                ->whereNull('sender_seen_at')->where('responded_at', '>', now()->subDays(14))->latest('responded_at')->limit(50)->get()
+                ->filter(fn ($r) => $r->recipient)->map(fn ($r) => $present($r, $r->recipient) + [
+                    'conversation_id' => $r->conversation_id, 'responded_at' => $r->responded_at?->toIso8601String(),
+                ])->values(),
         ]);
+    }
+
+    /** I've seen the answers to my requests (clears them from the list and the red count). */
+    public function seen(Request $request): JsonResponse
+    {
+        $ids = $request->validate(['ids' => 'nullable|array', 'ids.*' => 'integer'])['ids'] ?? null;
+        ChatRequest::where('from_id', $request->user()->id)->whereIn('status', ['accepted', 'declined'])->whereNull('sender_seen_at')
+            ->when($ids, fn ($q) => $q->whereIn('id', $ids))->update(['sender_seen_at' => now()]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function store(Request $request): JsonResponse
@@ -109,8 +125,9 @@ class ChatRequestController extends Controller
         $me = $request->user();
         $r = ChatRequest::where('to_id', $me->id)->where('status', 'pending')->findOrFail($id);
         $r->update(['status' => 'declined', 'responded_at' => now()]);
-        // No notification: the sender just sees it's no longer waiting.
-        UserSignal::dispatch($r->from_id, 'chat_request.updated', ['id' => $r->id]);
+        // The sender is told (gently), so they aren't left waiting.
+        UserSignal::dispatch($r->from_id, 'chat_request.declined', ['id' => $r->id, 'by' => ['id' => $me->id, 'name' => $me->name]]);
+        SendPush::dispatchAfterResponse([$r->from_id], 'Chat request', "{$me->name} can't chat right now.", ['type' => 'chat_request']);
 
         return response()->json(['status' => 'declined']);
     }

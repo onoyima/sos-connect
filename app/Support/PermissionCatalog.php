@@ -35,6 +35,7 @@ final class PermissionCatalog
             'announcements.create' => ['label' => 'Post notices', 'area' => true, 'module' => 'announcements'],
             'announcements.edit' => ['label' => 'Edit notices', 'area' => true, 'module' => 'announcements'],
             'announcements.delete' => ['label' => 'Delete notices', 'area' => true, 'module' => 'announcements'],
+            'broadcasts.manage' => ['label' => 'Send pop-up messages and sliding marquee lines', 'area' => true, 'module' => 'broadcasts'],
         ]],
         'status' => ['label' => 'Status and calls', 'items' => [
             'status.post' => ['label' => 'Post status updates', 'area' => false, 'module' => 'status'],
@@ -56,6 +57,11 @@ final class PermissionCatalog
             'members.delete' => ['label' => 'Delete members', 'area' => true],
             'members.consent' => ['label' => 'Record guardian consent for under-18s', 'area' => true],
             'parents.invite' => ['label' => 'Invite parents and guardians', 'area' => true, 'module' => 'parents'],
+        ]],
+        'faces' => ['label' => 'Face capture', 'items' => [
+            'face.capture' => ['label' => 'Capture their own face', 'area' => false, 'module' => 'face_capture'],
+            'faces.view' => ['label' => "See people's captured faces", 'area' => true, 'module' => 'face_capture'],
+            'faces.export' => ['label' => "Send captured faces to the school's systems", 'area' => false, 'module' => 'face_capture'],
         ]],
         'roles' => ['label' => 'Roles and permissions', 'items' => [
             'roles.view' => ['label' => 'View roles', 'area' => false],
@@ -80,6 +86,9 @@ final class PermissionCatalog
             'settings.edit' => ['label' => 'Change institution settings', 'area' => false],
             'connector.edit' => ['label' => 'Set up the sign-in connector', 'area' => false],
             'modules.manage' => ['label' => 'Switch features on or off', 'area' => false],
+            'help.manage' => ['label' => 'Edit help pages and the design document', 'area' => false],
+            'design.view' => ['label' => 'Read the system design document', 'area' => false],
+            'branding.manage' => ['label' => 'Change the favicon, chat icon and seasonal icons', 'area' => false],
         ]],
     ];
 

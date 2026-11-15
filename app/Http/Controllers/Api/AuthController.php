@@ -78,6 +78,12 @@ class AuthController extends Controller
                 ])->values()->all()) : [],
             'permissions' => Permissions::for($user),
             'modules' => \App\Support\Modules::states($user->institution),
+            // Face capture: switched on, required, and whether this person has done it.
+            'face' => \App\Support\Modules::enabled($institution, 'face_capture') ? [
+                'required' => \App\Support\Modules::enabled($institution, 'face_capture_required'),
+                'done' => \App\Models\FaceEnrollment::withoutGlobalScopes()->where('user_id', $user->id)->where('status', 'complete')->exists(),
+            ] : null,
+            'branding' => \App\Support\Branding::forClient($institution),
             'needs_policy_acceptance' => $user->policy_version !== config('sos.legal.policy_version'),
             'needs_guardian_consent' => $user->is_minor && ! $user->guardian_consent_at && ! $user->institution?->setting('minor_consent_at_admission'),
             'institution' => $institution ? [

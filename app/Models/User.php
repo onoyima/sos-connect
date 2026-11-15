@@ -106,7 +106,11 @@ class User extends Authenticatable
         return $this->status === 'active';
     }
 
-    /** What other members see. Never includes email, phone or identifier unless the viewer is staff. */
+    /**
+     * What other members see. Never includes email, phone or identifier unless the viewer is staff, and never
+     * someone's roles (admin, super admin, HOD, dean…): the role label is only shown to the person who holds it.
+     * In a group, members only see who the group admins are (from the group, not from here).
+     */
     public function publicProfile(?User $viewer = null): array
     {
         $staffView = $viewer && \App\Support\Access::canOnUser($viewer, 'members.contact', $this);
@@ -114,8 +118,8 @@ class User extends Authenticatable
         return array_filter([
             'id' => $this->id,
             'name' => $this->name,
-            'title' => $this->title,
-            'member_type' => $this->member_type,
+            'title' => $viewer && $viewer->id === $this->id ? $this->title : null,
+            'member_type' => $this->member_type === 'admin' ? 'staff' : $this->member_type,
             'department' => $this->department?->name,
             'level' => $this->member_type === 'student' ? $this->level : null,
             'alumni_year' => $this->member_type === 'alumni' ? $this->alumni_year : null,

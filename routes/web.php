@@ -3,9 +3,14 @@
 use App\Http\Controllers\Web\AdminController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\GroupsAdminController;
+use App\Http\Controllers\Web\BrandingController;
+use App\Http\Controllers\Web\BroadcastsAdminController;
+use App\Http\Controllers\Web\FacePageController;
+use App\Http\Controllers\Web\FacesAdminController;
 use App\Http\Controllers\Web\InvitationController;
 use App\Http\Controllers\Web\LinkController;
 use App\Http\Controllers\Web\MemberAccessController;
+use App\Http\Controllers\Web\PagesController;
 use App\Http\Controllers\Web\ParentsController;
 use App\Http\Controllers\Web\RolesController;
 use App\Http\Controllers\Web\StructureController;
@@ -31,6 +36,11 @@ Route::middleware('guest')->group(function () {
 Route::get('/invite/{token}', [InvitationController::class, 'show'])->name('invitation.show');
 Route::post('/invite/{token}', [InvitationController::class, 'accept'])->middleware('throttle:10,1')->name('invitation.accept');
 
+// Face capture inside the phone app (opened with a short-lived ticket; no website session needed)
+Route::get('/face/app/{ticket}', [FacePageController::class, 'app'])->where('ticket', '[A-Za-z0-9]{48}')->name('face.app');
+
+Route::get('/brand/{institution}/{kind}', [BrandingController::class, 'file'])->whereNumber('institution')->whereIn('kind', ['favicon', 'icon'])->name('brand.file');
+
 Route::get('/legal', [LegalController::class, 'index'])->name('legal.index');
 Route::get('/legal/{slug}', [LegalController::class, 'show'])->name('legal.show');
 
@@ -46,6 +56,8 @@ Route::middleware(['auth', 'member'])->group(function () {
     Route::get('/calls', [PageController::class, 'calls'])->name('calls');
     Route::get('/safety', [PageController::class, 'safety'])->name('safety');
     Route::get('/account/privacy', [PageController::class, 'privacy'])->name('account.privacy');
+    Route::get('/help/{slug?}', [PagesController::class, 'help'])->where('slug', '[a-z0-9-]+')->name('help');
+    Route::get('/face', [FacePageController::class, 'web'])->middleware('can.do:face.capture')->name('face');
 
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/settings', [AdminController::class, 'settings'])->middleware('can.do:settings.edit')->name('settings');
@@ -108,6 +120,43 @@ Route::middleware(['auth', 'member'])->group(function () {
             Route::get('/parents', [ParentsController::class, 'index'])->name('parents');
             Route::post('/parents', [ParentsController::class, 'invite'])->name('parents.invite');
             Route::post('/parents/{parent}/link', [ParentsController::class, 'link'])->name('parents.link');
+        });
+
+        // Look and icons
+        Route::middleware('can.do:branding.manage')->group(function () {
+            Route::get('/branding', [BrandingController::class, 'index'])->name('branding');
+            Route::post('/branding', [BrandingController::class, 'save'])->name('branding.save');
+        });
+
+        // Design document (admins) and editing help pages
+        Route::get('/design', [PagesController::class, 'design'])->middleware('can.do:design.view')->name('design');
+        Route::middleware('can.do:help.manage')->group(function () {
+            Route::post('/pages/preview', [PagesController::class, 'preview'])->name('pages.preview');
+            Route::post('/pages/{kind}/{slug?}', [PagesController::class, 'save'])->where(['kind' => 'help|design', 'slug' => '[a-z0-9-]+'])->name('pages.save');
+            Route::post('/pages/{kind}/{slug}/reset', [PagesController::class, 'reset'])->where(['kind' => 'help|design', 'slug' => '[a-z0-9-]+'])->name('pages.reset');
+            Route::delete('/pages/help/{slug}', [PagesController::class, 'destroy'])->where('slug', '[a-z0-9-]+')->name('pages.destroy');
+        });
+
+        // Pop-ups and marquee lines
+        Route::middleware('can.do:broadcasts.manage')->group(function () {
+            Route::get('/broadcasts', [BroadcastsAdminController::class, 'index'])->name('broadcasts');
+            Route::post('/broadcasts', [BroadcastsAdminController::class, 'store'])->name('broadcasts.store');
+            Route::put('/broadcasts/{broadcast}', [BroadcastsAdminController::class, 'update'])->name('broadcasts.update');
+            Route::post('/broadcasts/{broadcast}/pause', [BroadcastsAdminController::class, 'pause'])->name('broadcasts.pause');
+            Route::delete('/broadcasts/{broadcast}', [BroadcastsAdminController::class, 'destroy'])->name('broadcasts.destroy');
+        });
+
+        // Face capture: review and send to the school's systems
+        Route::middleware('can.do:faces.view')->group(function () {
+            Route::get('/faces', [FacesAdminController::class, 'index'])->name('faces');
+            Route::get('/faces/people/{id}', [FacesAdminController::class, 'person'])->whereNumber('id')->name('faces.person');
+            Route::get('/faces/image/{id}', [FacesAdminController::class, 'image'])->whereNumber('id')->name('faces.image');
+        });
+        Route::middleware('can.do:faces.export')->group(function () {
+            Route::post('/faces/target', [FacesAdminController::class, 'saveTarget'])->name('faces.target');
+            Route::post('/faces/export', [FacesAdminController::class, 'export'])->middleware('throttle:10,1')->name('faces.export');
+            Route::get('/faces/exports/{id}/download', [FacesAdminController::class, 'download'])->whereNumber('id')->name('faces.download');
+            Route::delete('/faces/people/{id}', [FacesAdminController::class, 'forget'])->whereNumber('id')->name('faces.forget');
         });
     });
 

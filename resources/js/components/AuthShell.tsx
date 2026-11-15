@@ -11,7 +11,7 @@ export function AuthShell({ children, wide = false }: { children: ReactNode; wid
             <aside className="relative overflow-hidden bg-grove px-6 py-8 text-white lg:sticky lg:top-0 lg:flex lg:h-dvh lg:w-[42%] lg:flex-col lg:px-12 lg:py-12">
                 <Waves />
                 <Link href="/" className="relative flex items-center gap-3">
-                    <Mark />
+                    <BrandMark />
                     <span className="text-lg font-bold">SOS Connect</span>
                 </Link>
                 <div className="relative mt-8 hidden lg:mt-auto lg:block">
@@ -31,6 +31,24 @@ export function AuthShell({ children, wide = false }: { children: ReactNode; wid
                 </div>
             </main>
         </div>
+    );
+}
+
+/**
+ * The chat icon: the institution's own (if an admin uploaded one) or the built-in mark, with a small seasonal
+ * badge around celebrations (Christmas, Easter, Eid, Independence Day…).
+ */
+export function BrandMark({ size = 40 }: { size?: number }) {
+    const branding = (usePage<SharedProps>().props.branding ?? null) as SharedProps['branding'] | null;
+    const season = branding?.season;
+    return (
+        <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} title={season ? `Happy ${season.label}!` : undefined}>
+            {branding?.icon ? <img src={branding.icon} alt="" width={size} height={size} className="size-full rounded-[30%] object-cover" /> : <Mark size={size} />}
+            {season && (
+                <span aria-hidden className="absolute -right-1.5 -bottom-1.5 flex items-center justify-center rounded-full bg-white shadow-sm"
+                    style={{ width: size * 0.55, height: size * 0.55, fontSize: size * 0.36, boxShadow: `0 0 0 2px ${season.accent}` }}>{season.badge}</span>
+            )}
+        </span>
     );
 }
 

@@ -8,6 +8,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useCalls } from '@/calls/CallContext';
 import type { ChatRow } from '@/chat/ChatListItem';
 import { chatIcon } from '@/chat/ChatListItem';
+import { chatOptions } from '@/chat/controls';
 import { MessageBubble, quoteText, type Msg } from '@/chat/MessageBubble';
 import { StickerPanel } from '@/chat/StickerPanel';
 import { stickerById } from '@/chat/stickers';
@@ -72,9 +73,14 @@ export default function ChatScreen() {
 
     const load = useCallback(async () => {
         const d = await db();
-        setConv(await d.getFirstAsync<ChatRow>('SELECT * FROM conversations WHERE id = ?', conversationId));
-        setMessages(await d.getAllAsync<Msg>('SELECT * FROM messages WHERE conversation_id = ? ORDER BY sent_at DESC LIMIT ?', conversationId, limit));
-    }, [conversationId, limit]);
+        const c = await d.getFirstAsync<ChatRow>('SELECT * FROM conversations WHERE id = ?', conversationId);
+        setConv(c);
+        // Paused: newer messages from others are held back until I resume (mine always show).
+        const held = c?.paused_after ?? null;
+        setMessages(held === null
+            ? await d.getAllAsync<Msg>('SELECT * FROM messages WHERE conversation_id = ? ORDER BY sent_at DESC LIMIT ?', conversationId, limit)
+            : await d.getAllAsync<Msg>('SELECT * FROM messages WHERE conversation_id = ? AND (id IS NULL OR id <= ? OR sender_id = ?) ORDER BY sent_at DESC LIMIT ?', conversationId, held, me?.id ?? 0, limit));
+    }, [conversationId, limit, me?.id]);
 
     useEffect(() => {
         load();
@@ -304,6 +310,7 @@ export default function ChatScreen() {
                 avatar={conv ? <Avatar name={conv.name} size={38} icon={chatIcon(conv)} /> : null}
                 right={<>
                     <IconButton name="search" label="Search this chat" onPress={() => { setSearching(!searching); setResults(null); setQ(''); }} />
+                    {conv && (has('mute_chats') || has('archive_chats') || has('pause_chats')) && <IconButton name="ellipsis-vertical" label="Mute, archive or pause" onPress={() => chatOptions(conv, has, load)} />}
                     {videoCall && <IconButton name="videocam-outline" label="Video call" onPress={() => calls.start({ id: peer.id, name: peer.name }, 'video').catch((e) => Alert.alert('Call', e.message))} />}
                     {voiceCall && <IconButton name="call-outline" label="Voice call" onPress={() => calls.start({ id: peer.id, name: peer.name }, 'voice').catch((e) => Alert.alert('Call', e.message))} />}
                     {groupVideo && <IconButton name="videocam-outline" label="Group video call" onPress={() => calls.startGroup(conversationId, 'video').catch(callError)} />}
@@ -321,6 +328,14 @@ export default function ChatScreen() {
                     <Pressable onPress={() => calls.joinGroup(liveCall.call_uuid).catch(callError)} style={{ backgroundColor: colors.leaf, borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 }}>
                         <Text style={{ color: '#fff', fontWeight: '700' }}>Join</Text>
                     </Pressable>
+                </View>
+            )}
+            {conv?.paused_after != null && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.amberBg, paddingHorizontal: 12, paddingVertical: 8 }}>
+                    <Icon name="pause-circle-outline" size={20} color={colors.ink} />
+                    <Text style={[ui.small, { flex: 1, color: colors.ink }]}>You paused this chat. New messages are held back, with no alerts, until you resume.</Text>
+                    <Pressable onPress={async () => { await api(`/conversations/${conversationId}`, { method: 'PATCH', body: { paused: false } }).catch(() => {}); await SyncEngine.refreshConversations(); load(); }}
+                        style={{ backgroundColor: colors.leaf, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 6 }}><Text style={{ color: '#fff', fontWeight: '700' }}>Resume</Text></Pressable>
                 </View>
             )}
             {!online && <Text style={{ backgroundColor: colors.amberBg, color: colors.ink, fontSize: 12.5, paddingHorizontal: 14, paddingVertical: 6 }}>Offline: text goes to people nearby and sends when you reconnect.</Text>}

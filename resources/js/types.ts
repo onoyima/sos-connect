@@ -6,8 +6,10 @@ export interface SharedProps {
         permissions: Permission[];
         super: boolean;
         session_tag: string | null;
+        face_due?: boolean;
     };
     modules: Record<string, boolean>;
+    branding?: Branding;
     institution: null | { id: number; name: string; short_code: string; security_phone: string | null; emergency_numbers: string[] };
     reverb: { key: string | null; host: string | null; port: number | null; scheme: string | null };
     flash: { status?: string | null; error?: string | null };
@@ -48,6 +50,10 @@ export interface ConversationSummary {
     member_count: number;
     unread: number;
     muted: boolean;
+    muted_until?: string | null;
+    archived?: boolean;
+    /** Set while I've paused this chat: messages newer than this id are held back until I resume. */
+    paused_after?: number | null;
     last_message: ChatMessage | null;
     last_message_at: string | null;
 }
@@ -85,3 +91,9 @@ export type UnitOption = { id: number; name: string; code: string | null; type: 
 export type CatalogGroup = { key: string; label: string; items: { key: string; label: string; area: boolean; module: string | null }[] };
 
 export type Paginated<T> = { data: T[]; links: { url: string | null; label: string; active: boolean }[]; total?: number };
+
+export type Branding = {
+    favicon: string | null;
+    icon: string | null;
+    season: null | { key: string; label: string; badge: string; accent: string };
+};

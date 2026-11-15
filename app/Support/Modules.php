@@ -25,9 +25,13 @@ final class Modules
         'hostel_groups' => ['label' => 'Hostel groups', 'description' => 'A residents group per hostel, from the accommodation records.', 'default' => true, 'requires' => 'communities'],
         'parents' => ['label' => 'Parents and guardians', 'description' => 'Parent accounts and the parents group.', 'default' => false],
         'announcements' => ['label' => 'Notices', 'description' => 'The notices page and announcement channels.', 'default' => true],
+        'broadcasts' => ['label' => 'Pop-ups and marquee', 'description' => 'Pop-up messages shown when the app opens, and a line of text sliding across the top, for everyone or a chosen group.', 'default' => true],
         'direct_chat' => ['label' => 'Private chats', 'description' => 'One-to-one messages.', 'default' => true],
         'custom_groups' => ['label' => 'Groups made by members', 'description' => 'Members creating their own groups.', 'default' => true],
         'chat_requests' => ['label' => 'Chat requests', 'description' => 'People who may not message someone straight away (e.g. student to student) can send a request to chat. Off: only chats your rules allow at once.', 'default' => true, 'requires' => 'direct_chat'],
+        'mute_chats' => ['label' => 'Mute chats', 'description' => 'People can mute a chat or group for 8 hours, a week or always (no alerts; it still shows new messages).', 'default' => true],
+        'archive_chats' => ['label' => 'Archive chats', 'description' => 'People can move chats and groups they rarely use out of their main list.', 'default' => true],
+        'pause_chats' => ['label' => 'Pause chats', 'description' => 'People can pause a chat or group: new messages are held back, with no alerts, until they resume it.', 'default' => true],
         'file_sharing' => ['label' => 'Photos and files', 'description' => 'Sending photos and documents in chat.', 'default' => true],
         'voice_notes' => ['label' => 'Voice notes', 'description' => 'Recording and sending voice notes in chat.', 'default' => true],
         'stickers' => ['label' => 'Stickers', 'description' => 'The built-in sticker set in chat. (Emojis in messages always work.)', 'default' => true],
@@ -37,6 +41,8 @@ final class Modules
         'video_calls' => ['label' => 'Video calls', 'description' => 'Internet and campus Wi-Fi video calls.', 'default' => true],
         'group_calls' => ['label' => 'Group calls', 'description' => 'Voice and video calls in group chats (voice or video calls must also be on).', 'default' => true],
         'safety_checks' => ['label' => 'Safety checks', 'description' => '"Are you safe?" checks during incidents.', 'default' => true],
+        'face_capture' => ['label' => 'Face capture', 'description' => "Students and staff record a guided set of face photos (with blink and head-turn checks) that you can send to the school's own systems. Under-18s need guardian consent first.", 'default' => false],
+        'face_capture_required' => ['label' => 'Face capture required', 'description' => 'Remind every student and staff member until they have captured their face. Off: it is optional.', 'default' => false, 'requires' => 'face_capture'],
         'offline_mesh' => ['label' => 'Offline messaging', 'description' => 'Chat over Bluetooth and Wi-Fi without internet in the phone app. SOS always works offline.', 'default' => true],
     ];
 

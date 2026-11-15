@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 export type Person = { id: number; name: string; title?: string | null };
 export type Reactions = { like: number; love: number };
 export type Status = {
-    id: number; user: { id: number; name: string }; body: string | null; media_path: string | null; background?: string | null; audience: string | null;
+    id: number; user: { id: number; name: string }; body: string | null; media_path: string | null; media_type?: 'image' | 'gif' | 'video' | 'audio' | null; background?: string | null; audience: string | null;
     mentions?: Person[]; comment_count?: number; reactions?: Reactions; my_reaction?: 'like' | 'love' | null; view_count?: number | null;
     expires_at: string; created_at: string; viewed: boolean;
 };

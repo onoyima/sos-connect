@@ -85,6 +85,7 @@ function LinkWithPhone({ onUsePassword }: { onUsePassword: () => void }) {
     const [svg, setSvg] = useState<string | null>(null);
     const [state, setState] = useState<'loading' | 'waiting' | 'paused' | 'linked' | 'error'>('loading');
     const code = useRef<string | null>(null);
+    const key = useRef<string>('');
     const rounds = useRef(0);
 
     const fresh = async () => {
@@ -92,8 +93,9 @@ function LinkWithPhone({ onUsePassword }: { onUsePassword: () => void }) {
         try {
             const res = await fetch('/link', { method: 'POST', credentials: 'same-origin', headers: headers() });
             if (!res.ok) throw new Error(String(res.status));
-            const r = await res.json() as { code: string; qr: string };
+            const r = await res.json() as { code: string; key: string; qr: string };
             code.current = r.code;
+            key.current = r.key;
             setSvg(await QRCode.toString(r.qr, { type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: '#0e3b2e', light: '#ffffff' } }));
             setState('waiting');
         } catch { setState('error'); }
@@ -107,7 +109,7 @@ function LinkWithPhone({ onUsePassword }: { onUsePassword: () => void }) {
         const t = window.setInterval(async () => {
             if (!code.current || document.visibilityState === 'hidden') return;
             try {
-                const res = await fetch(`/link/${code.current}`, { credentials: 'same-origin', headers: headers() });
+                const res = await fetch(`/link/${code.current}`, { credentials: 'same-origin', headers: { ...headers(), 'X-Link-Key': key.current } });
                 if (res.redirected || res.status === 409) { window.location.href = '/chats'; return; }
                 const r = await res.json() as { status: string; redirect?: string };
                 if (r.status === 'linked') {
