@@ -1,0 +1,86 @@
+name: Deploy SOS Connect to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sos-connect-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy over SSH
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "$VPS_HOST"
+          test -n "$VPS_SSH_USER"
+          test -n "$VPS_SSH_PRIVATE_KEY"
+          test -n "$VPS_KNOWN_HOSTS"
+
+          KEY_FILE="$RUNNER_TEMP/sos-connect-deploy-key"
+          KNOWN_HOSTS_FILE="$RUNNER_TEMP/sos-connect-known-hosts"
+
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$KEY_FILE"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$KNOWN_HOSTS_FILE"
+          chmod 600 "$KEY_FILE" "$KNOWN_HOSTS_FILE"
+
+          ssh \
+            -i "$KEY_FILE" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$KNOWN_HOSTS_FILE" \
+            "$VPS_SSH_USER@$VPS_HOST" 'bash -se' <<'REMOTE'
+          set -Eeuo pipefail
+
+          APP="/home/prove-deploy/apps/sos-connect-pro"
+          cd "$APP"
+
+          echo "Checking production working tree..."
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ERROR: Production working tree has local changes. Stopping to avoid overwriting them."
+            git status --short
+            exit 1
+          fi
+
+          echo "Fetching latest main branch..."
+          git fetch origin main
+          git merge --ff-only origin/main
+
+          echo "Installing PHP production dependencies..."
+          composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader
+
+          echo "Installing frontend dependencies and building assets..."
+          npm ci
+          npm run build
+
+          echo "Running database migrations..."
+          php artisan migrate --force
+
+          echo "Refreshing Laravel production caches..."
+          php artisan optimize:clear
+          php artisan config:cache
+          php artisan view:cache
+
+          echo "SOS Connect deployment completed."
+          REMOTE
+
+          rm -f "$KEY_FILE" "$KNOWN_HOSTS_FILE"
