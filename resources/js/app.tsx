@@ -6,11 +6,12 @@ import { createRoot } from 'react-dom/client';
 
 createInertiaApp({
     title: (title) => (title ? `${title} · SOS Connect` : 'SOS Connect'),
+    // Each page is its own small file, loaded when first opened (the first screen appears much sooner on slow networks).
     resolve: (name) => {
-        const pages = import.meta.glob('./pages/**/*.tsx', { eager: true });
-        const page = pages[`./pages/${name}.tsx`];
-        if (!page) throw new Error(`Page not found: ${name}`);
-        return page as never;
+        const pages = import.meta.glob('./pages/**/*.tsx');
+        const load = pages[`./pages/${name}.tsx`];
+        if (!load) throw new Error(`Page not found: ${name}`);
+        return load() as never;
     },
     setup({ el, App, props }) {
         createRoot(el).render(<App {...props} />);

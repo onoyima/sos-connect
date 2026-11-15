@@ -24,6 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Real client IPs behind a load balancer / Cloudflare / Nginx.
         $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO);
+        // The site's own address is always allowed to use /api with its session (see TrustOwnHost).
+        $middleware->prepend(\App\Http\Middleware\TrustOwnHost::class);
 
         $middleware->web(append: [
             HandleInertiaRequests::class,

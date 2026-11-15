@@ -23,11 +23,44 @@ export function signedIn() {
 }
 
 let leaving = false;
-/** why: 'replaced' = opened on another browser, 'phone' = signed out from the phone, otherwise the session ran out. */
+let checking = false;
+let warned = false;
+const BOUNCE = 'sos.signInBounce';
+
+/**
+ * why: 'replaced' = opened on another browser, 'phone' = signed out from the phone, otherwise the session ran out.
+ *
+ * A plain 401 from /api is double-checked against the page session first. If the page session is still fine,
+ * the API is refusing it because of server set-up (not because the person was signed out), and going to the
+ * sign-in page would only bounce straight back here, over and over. So we stay put and say so in the console.
+ */
 export function sessionEnded(why?: string | null) {
     if (leaving) return;
+    if (why === 'replaced' || why === 'phone') { leave(why); return; }
+    if (checking) return;
+    checking = true;
+    fetch('/session', { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+        .then(async (res) => {
+            if (res.status === 401 || res.status === 419) {
+                const data = await res.json().catch(() => null) as { signed_out?: string } | null;
+                leave(data?.signed_out ?? null);
+            } else if (res.ok && !warned) {
+                warned = true;
+                console.error('[SOS Connect] The API refused this signed-in session (401) but the page session is valid. '
+                    + 'Check APP_URL / SANCTUM_STATEFUL_DOMAINS and SESSION_DOMAIN on the server. Not signing out.');
+            }
+        })
+        .catch(() => { /* offline: try again later */ })
+        .finally(() => { window.setTimeout(() => { checking = false; }, 30_000); });
+}
+
+function leave(why: string | null) {
+    // Never loop: if we were sent to sign-in moments ago and are back already, stop here.
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(BOUNCE) ?? 0); } catch { /* private mode */ }
+    if (Date.now() - last < 15_000) { console.error('[SOS Connect] Sign-in keeps bouncing back; not redirecting again.'); return; }
+    try { sessionStorage.setItem(BOUNCE, String(Date.now())); sessionStorage.setItem(FLAG, '1'); } catch { /* private mode */ }
     leaving = true;
-    try { sessionStorage.setItem(FLAG, '1'); } catch { /* private mode */ }
     window.location.replace(`/login?${why === 'replaced' || why === 'phone' ? why : 'expired'}=1`);
 }
 

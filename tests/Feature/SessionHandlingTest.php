@@ -46,4 +46,14 @@ class SessionHandlingTest extends TestCase
         $res = $this->actingAs($member)->get('/session')->assertOk();
         $this->assertStringContainsString('no-store', (string) $res->headers->get('Cache-Control'));
     }
+
+    public function test_the_sites_own_address_is_always_first_party_for_the_api(): void
+    {
+        // e.g. deployed at a new domain while APP_URL still says localhost: /api must still accept the page's session.
+        config(['sanctum.stateful' => ['localhost']]);
+        $request = \Illuminate\Http\Request::create('https://chat.example-school.test/api/me', 'GET');
+        (new \App\Http\Middleware\TrustOwnHost)->handle($request, fn () => response('ok'));
+        $this->assertContains('chat.example-school.test', config('sanctum.stateful'));
+        $this->assertContains('localhost', config('sanctum.stateful'));
+    }
 }
