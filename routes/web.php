@@ -49,12 +49,15 @@ Route::middleware(['auth', 'member'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/session', fn () => response()->json(['ok' => true]))->name('session.check'); // the page asks "am I still signed in?"
 
-    Route::get('/chats/{conversation?}', [PageController::class, 'chats'])->whereNumber('conversation')->name('chats');
-    Route::get('/sos', [PageController::class, 'sos'])->name('sos');
-    Route::get('/announcements', [PageController::class, 'announcements'])->name('announcements');
-    Route::get('/status', [PageController::class, 'status'])->name('status');
-    Route::get('/calls', [PageController::class, 'calls'])->name('calls');
-    Route::get('/safety', [PageController::class, 'safety'])->name('safety');
+    // Member pages (the platform owner, who belongs to no institution, is sent to the institutions list instead).
+    Route::middleware(\App\Http\Middleware\PlatformHome::class)->group(function () {
+        Route::get('/chats/{conversation?}', [PageController::class, 'chats'])->whereNumber('conversation')->name('chats');
+        Route::get('/sos', [PageController::class, 'sos'])->name('sos');
+        Route::get('/announcements', [PageController::class, 'announcements'])->name('announcements');
+        Route::get('/status', [PageController::class, 'status'])->name('status');
+        Route::get('/calls', [PageController::class, 'calls'])->name('calls');
+        Route::get('/safety', [PageController::class, 'safety'])->name('safety');
+    });
     Route::get('/account/privacy', [PageController::class, 'privacy'])->name('account.privacy');
     Route::get('/help/{slug?}', [PagesController::class, 'help'])->where('slug', '[a-z0-9-]+')->name('help');
     Route::get('/face', [FacePageController::class, 'web'])->middleware('can.do:face.capture')->name('face');

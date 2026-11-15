@@ -33,6 +33,8 @@ APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://web.proveownership.com
 SESSION_SECURE_COOKIE=true
+# Stay signed in for 30 days without use (a chat app). A short value here signs people out overnight.
+SESSION_LIFETIME=43200
 # SESSION_DOMAIN left empty (cookie for this exact host)
 # database or redis; run a worker (below)
 QUEUE_CONNECTION=database

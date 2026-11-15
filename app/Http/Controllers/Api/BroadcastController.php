@@ -14,7 +14,7 @@ class BroadcastController extends Controller
     public function active(Request $request): JsonResponse
     {
         $me = $request->user();
-        if (! Modules::enabled($me->institution, 'broadcasts')) {
+        if (! $me->institution_id || ! Modules::enabled($me->institution, 'broadcasts')) {
             return response()->json(['popups' => [], 'marquees' => []]);
         }
         $live = Broadcast::live()->latest()->limit(50)->get()->filter(fn (Broadcast $b) => $b->isFor($me));

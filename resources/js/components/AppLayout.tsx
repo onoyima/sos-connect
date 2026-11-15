@@ -11,6 +11,7 @@ import { Broadcasts } from './Broadcasts';
 import { CallManager } from './CallManager';
 import { PolicyGate } from './PolicyGate';
 import { SosButton } from './SosButton';
+import { PlatformChat } from './PlatformChat';
 import { Avatar, memberLabel } from './ui';
 import { BrandMark } from './AuthShell';
 
@@ -59,7 +60,9 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
     const on = (m?: string | string[]) => !m || (Array.isArray(m) ? m : [m]).some((x) => modules?.[x] !== false);
     const can = (p?: string | string[]) => has(p);
     const shows = (n: NavItem) => has(n.permission) && on(n.module);
-    const main = MAIN.filter(shows);
+    // The platform owner belongs to no school: no chats, SOS or notices to show, only the institutions list.
+    const platformOnly = !!auth?.user.is_platform_admin && !institution;
+    const main = platformOnly ? [] : MAIN.filter(shows);
     const adminHref = ADMIN_TABS.find(shows)?.href;
     const isActive = (href: string) => url === href || url.startsWith(href + '/') || url.startsWith(href + '?');
     const inAdmin = url.startsWith('/admin') || url.startsWith('/platform');
@@ -233,6 +236,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
 
             {auth?.user.needs_policy_acceptance && <PolicyGate />}
             {auth && <CallManager />}
+            {auth?.platform_chat && <PlatformChat raised={!inAdmin} lifted={url.startsWith('/chats')} />}
         </div>
     );
 }

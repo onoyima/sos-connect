@@ -5,6 +5,8 @@ export interface SharedProps {
         user: { id: number; name: string; title: string | null; member_type: string; is_platform_admin: boolean; needs_policy_acceptance: boolean };
         permissions: Permission[];
         super: boolean;
+        /** Platform owners and school admins: the platform chat widget. */
+        platform_chat?: boolean;
         session_tag: string | null;
         face_due?: boolean;
     };

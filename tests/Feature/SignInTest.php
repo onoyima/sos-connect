@@ -63,4 +63,14 @@ class SignInTest extends TestCase
         $this->post('/login', ['identifier' => 'ops@service.test', 'password' => 'a-long-password'])->assertRedirect(route('platform.institutions'));
         $this->assertAuthenticatedAs($op);
     }
+
+    public function test_platform_owner_is_sent_to_institutions_not_the_locked_chat_page(): void
+    {
+        $op = \App\Models\User::forceCreate(['email' => 'ops2@service.test', 'name' => 'Ops', 'auth_source' => 'local', 'member_type' => 'admin',
+            'password' => 'a-long-password', 'status' => 'active', 'is_platform_admin' => true,
+            'policy_version' => config('sos.legal.policy_version')]);
+        $this->actingAs($op, 'web');
+        $this->get('/chats')->assertRedirect(route('platform.institutions'));
+        $this->get('/sos')->assertRedirect(route('platform.institutions'));
+    }
 }

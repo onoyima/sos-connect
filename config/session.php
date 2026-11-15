@@ -32,7 +32,10 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    // A chat app stays signed in like WhatsApp Web: the session ends after 30 days without use (every visit, and the
+    // open page's background check every half minute, starts the 30 days again). Signing out, signing in on another
+    // browser, or signing out from the phone still ends it at once.
+    'lifetime' => (int) env('SESSION_LIFETIME', 43200),
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 

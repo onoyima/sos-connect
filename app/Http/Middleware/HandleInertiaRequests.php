@@ -23,8 +23,13 @@ class HandleInertiaRequests extends Middleware
                     'is_platform_admin' => (bool) $user->is_platform_admin,
                     'needs_policy_acceptance' => $user->policy_version !== config('sos.legal.policy_version'),
                 ],
-                'permissions' => $user->is_platform_admin ? ['platform.manage'] : Access::list($user),
+                // A platform admin who also belongs to a school keeps everything their school role gives them (chat included).
+                'permissions' => $user->is_platform_admin
+                    ? ($user->institution_id ? array_values(array_unique([...Access::list($user), 'platform.manage'])) : ['platform.manage'])
+                    : Access::list($user),
                 'super' => Access::isSuper($user),
+                // Platform owners and school admins get the platform chat widget.
+                'platform_chat' => fn () => \App\Services\PlatformChat\PlatformChat::canUse($user),
                 // Lets this page tell whether a "signed in on another browser" signal is about itself.
                 // Face capture is required here and this person hasn't done it yet: a reminder shows on every page.
                 'face_due' => fn () => $user->institution_id && \App\Support\Modules::enabled($institution, 'face_capture_required')

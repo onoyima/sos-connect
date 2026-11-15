@@ -35,6 +35,15 @@ Route::middleware(['auth:sanctum', 'member', 'throttle:api'])->group(function ()
     Route::post('/linked-devices/web', [Api\LinkedDevicesController::class, 'approve'])->middleware('throttle:20,1');
     Route::delete('/linked-devices/web', [Api\LinkedDevicesController::class, 'destroyWeb']);
     Route::get('/pulse', Api\PulseController::class);
+
+    // Platform chat: platform owners ↔ each other ↔ school admins (the chat widget on the website).
+    Route::prefix('platform-chat')->group(function () {
+        Route::get('/', [Api\PlatformChatController::class, 'index']);
+        Route::get('/people', [Api\PlatformChatController::class, 'people']);
+        Route::post('/', [Api\PlatformChatController::class, 'start'])->middleware('throttle:30,1');
+        Route::get('/{thread}/messages', [Api\PlatformChatController::class, 'messages'])->whereNumber('thread');
+        Route::post('/{thread}/messages', [Api\PlatformChatController::class, 'send'])->whereNumber('thread')->middleware('throttle:60,1');
+    });
     Route::get('/badges', [Api\PulseController::class, 'badges']);
     Route::get('/realtime', [Api\PulseController::class, 'settings']);
     Route::post('/me/accept-policies', [Api\MeController::class, 'acceptPolicies']);
