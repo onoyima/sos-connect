@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import type { ExpoConfig } from 'expo/config';
-import { ensureSiren } from './scripts/siren';
-import { ensureTones, toneFiles } from './scripts/tones';
+// Plain .js: Expo only converts this file itself, not TypeScript files it imports.
+const { ensureSiren } = require('./scripts/siren.js');
+const { ensureTones, toneFiles } = require('./scripts/tones.js');
 
 // The SOS alarm and the tones people choose are generated here (not stored), so they are always intact.
 ensureSiren();
@@ -64,7 +65,7 @@ const config: ExpoConfig = {
         },
         // From `php artisan sos:platform-keys` (public half only). Lets phones verify each other offline.
         platformPublicKey: process.env.EXPO_PUBLIC_PLATFORM_PUBLIC_KEY ?? '',
-        eas: { projectId: process.env.EAS_PROJECT_ID },
+        eas: { projectId: 'a1c212fa-a9cc-47af-a870-2e2516753b57' },
     },
 };
 

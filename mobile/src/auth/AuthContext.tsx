@@ -150,10 +150,10 @@ async function pushToken(): Promise<string | null> {
         await Notifications.setNotificationChannelAsync('messages', { name: 'Messages', importance: Notifications.AndroidImportance.DEFAULT });
         // One channel per tone people can choose (Settings > Sounds): the server sends each alert on the person's chosen one.
         for (const id of Object.keys(TONES)) {
-            await Notifications.setNotificationChannelAsync(`tone-${id}`, { name: `Alerts: ${id}`, importance: Notifications.AndroidImportance.HIGH, sound: `tone-${id}.wav`, vibrationPattern: [0, 250] });
+            await Notifications.setNotificationChannelAsync(`tone-${id}`, { name: `Alerts: ${id}`, importance: Notifications.AndroidImportance.HIGH, sound: `tone_${id}.wav`, vibrationPattern: [0, 250] });
         }
         for (const id of Object.keys(RINGS)) {
-            await Notifications.setNotificationChannelAsync(`ring-${id}`, { name: `Calls: ${id}`, importance: Notifications.AndroidImportance.MAX, sound: `ring-${id}.wav`,
+            await Notifications.setNotificationChannelAsync(`ring-${id}`, { name: `Calls: ${id}`, importance: Notifications.AndroidImportance.MAX, sound: `ring_${id}.wav`,
                 vibrationPattern: [0, 700, 500, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC });
         }
         await Notifications.setNotificationChannelAsync('tone-silent', { name: 'Alerts: silent', importance: Notifications.AndroidImportance.DEFAULT, sound: null });

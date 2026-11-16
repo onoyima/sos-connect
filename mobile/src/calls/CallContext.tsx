@@ -10,7 +10,7 @@ import { SyncEngine } from '@/sync/SyncEngine';
 import { realtimeFast } from '@/sync/realtime';
 
 type Kind = 'voice' | 'video';
-type Phase = 'idle' | 'ringing-in' | 'ringing-out' | 'connecting' | 'connected';
+type Phase = 'idle' | 'ringing-in' | 'calling' | 'ringing-out' | 'connecting' | 'connected';
 type Call = { uuid: string; type: Kind; peer: { id: number; name: string }; direction: 'in' | 'out'; via: 'online' | 'lan' };
 
 export type GroupInfo = { uuid: string; type: Kind; conversationId: number; name: string | null; startedAt: string };
@@ -41,7 +41,8 @@ const VIDEO = { facingMode: 'user', width: 640, height: 480, frameRate: 24 };
  * Every handler reads the CURRENT call from a ref, so no handler ever acts on a stale "idle" state.
  */
 export function CallProvider({ children }: { children: ReactNode }) {
-    const [phase, setPhase] = useState<Phase>('idle');
+    const [phase, setPhaseState] = useState<Phase>('idle');
+    const setPhase = (p: Phase) => { phaseRef.current = p; setPhaseState(p); };
     const [call, setCallState] = useState<Call | null>(null);
     const [local, setLocal] = useState<MediaStream | null>(null);
     const [remote, setRemote] = useState<MediaStream | null>(null);
@@ -54,6 +55,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const pendingIce = useRef<any[]>([]);
     const localRef = useRef<MediaStream | null>(null);
     const ringTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const phaseRef = useRef<Phase>('idle');
+    const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastSid = useRef(0);
+    const doneSids = useRef(new Set<number>());
+    const offered = useRef(false);
+    const handled = useRef(new Set<string>()); // calls already shown (a repeat from polling is ignored)
 
     // Group call state
     const [group, setGroupState] = useState<GroupInfo | null>(null);
@@ -92,6 +99,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const cleanup = () => {
         if (ringTimer.current) clearTimeout(ringTimer.current);
+        if (pollTimer.current) clearTimeout(pollTimer.current);
+        pollTimer.current = null;
+        lastSid.current = 0;
+        doneSids.current.clear();
+        offered.current = false;
         pc.current?.close();
         pc.current = null;
         stopLocal();
@@ -133,15 +145,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const c = callRef.current;
         if (data.kind === 'incoming') {
             if (c || groupRef.current) { if (via === 'lan') MeshManager.sendCallSignal(from, { kind: 'state', call_uuid: data.call_uuid, status: 'busy' }); return; }
+            if (handled.current.has(data.call_uuid)) return;
+            handled.current.add(data.call_uuid);
             setCall({ uuid: data.call_uuid, type: data.type, peer: data.caller, direction: 'in', via });
             setPhase('ringing-in');
-            ringTimer.current = setTimeout(() => cleanup(), 45_000);
+            if (via === 'online') {
+                api(`/calls/${data.call_uuid}/ringing`, { method: 'POST' }).catch(() => {}); // the caller now hears ringing
+                startPolling();
+            }
+            ringTimer.current = setTimeout(() => cleanup(), 50_000);
             return;
         }
         if (!c || c.uuid !== data.call_uuid) return;
+        if (typeof data.sid === 'number') {
+            if (doneSids.current.has(data.sid)) return; // already handled (arrived both ways)
+            doneSids.current.add(data.sid);
+            lastSid.current = Math.max(lastSid.current, data.sid);
+        }
         if (data.kind === 'state') {
             const status = data.status ?? data.action;
+            if (status === 'ringing' && data.rang && phaseRef.current === 'calling') { setPhase('ringing-out'); return; }
             if ((status === 'answered' || status === 'answer') && c.direction === 'out') {
+                if (offered.current) return;
+                offered.current = true;
                 if (ringTimer.current) clearTimeout(ringTimer.current);
                 setPhase('connecting');
                 try {
@@ -163,7 +189,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 const answer = await peer.createAnswer();
                 await peer.setLocalDescription(answer);
                 send('signal', { data: { sdp: answer } });
-            } else if (sdp?.type === 'answer' && peer) {
+            } else if (sdp?.type === 'answer' && peer && !(peer as any).remoteDescription) {
                 await peer.setRemoteDescription(new RTCSessionDescription(sdp));
                 await flushIce();
             } else if (candidate) {
@@ -179,10 +205,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (via === 'online' && !SyncEngine.online) throw new Error(`${peer.name} isn't on your Wi-Fi and you're offline. Send a message instead — it will reach them through nearby phones.`);
         const uuid = Crypto.randomUUID();
         setCall({ uuid, type, peer, direction: 'out', via });
-        setPhase('ringing-out');
+        setPhase(via === 'online' ? 'calling' : 'ringing-out'); // online: "calling" until it's on their screen
         if (via === 'online') {
             try {
                 await api('/calls', { body: { callee_id: peer.id, type, call_uuid: uuid } });
+                startPolling();
             } catch (e) {
                 cleanup();
                 throw (e as { status?: number }).status === 409 ? new Error(`${peer.name} is on another call.`) : e;
@@ -190,8 +217,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } else {
             send('incoming', {});
         }
-        ringTimer.current = setTimeout(() => { send('state', { action: 'missed', status: 'missed' }); cleanup(); }, 45_000);
+        ringTimer.current = setTimeout(() => { send('state', { action: 'missed', status: 'missed' }); cleanup(); }, 50_000);
     };
+
+    /**
+     * Online calls don't depend on the live connection alone: until connected, the server is asked every second
+     * where the call stands and for setup messages kept there (then every 4 seconds, to notice a hang-up).
+     */
+    function startPolling() {
+        if (pollTimer.current) clearTimeout(pollTimer.current);
+        const tick = async () => {
+            const c = callRef.current;
+            if (!c || c.via !== 'online') return;
+            try {
+                const r = await api<{ status: string; rang: boolean; signals: { id: number; data: any }[] }>(`/calls/${c.uuid}/poll?after=${lastSid.current}`);
+                for (const s of r.signals) emit('callSignal', { from: 0, data: { kind: 'signal', call_uuid: c.uuid, data: s.data, sid: s.id }, via: 'online' });
+                emit('callSignal', { from: 0, data: { kind: 'state', call_uuid: c.uuid, status: r.status, rang: r.rang }, via: 'online' });
+            } catch { /* a moment offline: try again */ }
+            if (callRef.current?.uuid === c.uuid) pollTimer.current = setTimeout(tick, phaseRef.current === 'connected' ? 4000 : 1000);
+        };
+        pollTimer.current = setTimeout(tick, 700);
+    }
 
     const accept = async () => {
         const c = callRef.current;
@@ -205,7 +251,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     };
 
     const hangUp = () => {
-        const action = phase === 'ringing-in' ? 'reject' : 'end';
+        const action = phaseRef.current === 'ringing-in' ? 'reject' : 'end';
         send('state', { action, status: action === 'reject' ? 'rejected' : 'ended' });
         cleanup();
     };

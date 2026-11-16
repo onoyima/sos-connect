@@ -36,7 +36,7 @@ export function CallOverlay() {
     const c = useCalls();
     const { me } = useAuth();
     // Ring (and vibrate) while a call is coming in; ringback while calling; stop as soon as it's answered or over.
-    const ringing = c.ring && !c.group ? 'incoming' : c.phase === 'ringing-in' ? 'incoming' : c.phase === 'ringing-out' ? 'outgoing' : null;
+    const ringing = c.ring && !c.group ? 'incoming' : c.phase === 'ringing-in' ? 'incoming' : c.phase === 'calling' ? 'calling' : c.phase === 'ringing-out' ? 'ringback' : null;
     const tone = c.ring && !c.group ? me?.sounds?.group_call : me?.sounds?.call; // the ringtone they chose
     useEffect(() => {
         if (ringing) startRing(ringing, tone);
@@ -56,7 +56,7 @@ function DirectCallScreen() {
     if (!call) return null;
     const video = call.type === 'video';
     const showRemote = video && remote && !peerCameraOff;
-    const label = phase === 'ringing-in' ? `Incoming ${call.type} call` : phase === 'ringing-out' ? 'Ringing…' : phase === 'connecting' ? 'Connecting…' : time;
+    const label = phase === 'ringing-in' ? `Incoming ${call.type} call` : phase === 'calling' ? 'Calling…' : phase === 'ringing-out' ? 'Ringing…' : phase === 'connecting' ? 'Connecting…' : time;
 
     return (
         <Modal visible animationType="slide" onRequestClose={() => {}}>
@@ -64,7 +64,7 @@ function DirectCallScreen() {
                 {showRemote && <RTCView streamURL={remote.toURL()} style={StyleSheet.absoluteFill} objectFit="cover" />}
                 {video && local && !cameraOff && <RTCView streamURL={local.toURL()} style={[s.pip, { top: insets.top + 16 }]} objectFit="cover" mirror zOrder={1} />}
                 <View style={{ alignItems: 'center', marginTop: showRemote ? 0 : -80 }}>
-                    {!showRemote && <PulsingAvatar name={call.peer.name} ringing={phase === 'ringing-in' || phase === 'ringing-out'} />}
+                    {!showRemote && <PulsingAvatar name={call.peer.name} ringing={phase === 'ringing-in' || phase === 'ringing-out' || phase === 'calling'} />}
                     <Text style={[s.name, showRemote && s.shadow]} numberOfLines={1}>{call.peer.name}</Text>
                     <Text style={[s.status, showRemote && s.shadow]}>
                         {label}{video && phase === 'connected' && peerCameraOff ? ' · camera off' : ''}{call.via === 'lan' ? ' · over campus Wi-Fi, no internet' : ''}

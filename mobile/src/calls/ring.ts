@@ -9,7 +9,7 @@ import { ringFile } from '@/sound/play';
  * generated once as small WAV files in the app's cache, then looped. Incoming calls also vibrate.
  */
 let player: AudioPlayer | null = null;
-const files: Partial<Record<'incoming' | 'outgoing', string>> = {};
+const files: Partial<Record<'incoming' | 'calling' | 'ringback', string>> = {};
 
 /** 16-bit mono PCM WAV of tone bursts: [frequencies, seconds on, seconds off]. */
 function wav(pattern: [number[], number, number][], rate = 16000): Uint8Array {
@@ -34,14 +34,16 @@ function wav(pattern: [number[], number, number][], rate = 16000): Uint8Array {
     return data;
 }
 
-async function file(kind: 'incoming' | 'outgoing') {
+async function file(kind: 'incoming' | 'calling' | 'ringback') {
     if (files[kind]) return files[kind]!;
-    const path = `${FileSystem.cacheDirectory}sos-${kind}-v1.wav`;
+    const path = `${FileSystem.cacheDirectory}sos-${kind}-v2.wav`;
     const info = await FileSystem.getInfoAsync(path);
     if (!info.exists) {
+        // calling: the call hasn't reached the other phone yet; ringback: it's ringing there (same as the website).
         const pattern: [number[], number, number][] = kind === 'incoming'
             ? [[[440, 480], 0.4, 0.2], [[440, 480], 0.4, 1.6]]
-            : [[[425], 1, 3]];
+            : kind === 'calling' ? [[[480], 0.12, 0.12], [[480], 0.12, 1.64]]
+            : [[[425], 1.2, 2.8]];
         await FileSystem.writeAsStringAsync(path, toBase64(wav(pattern)), { encoding: FileSystem.EncodingType.Base64 });
     }
     files[kind] = path;
@@ -49,7 +51,7 @@ async function file(kind: 'incoming' | 'outgoing') {
 }
 
 /** tone: the ringtone the person chose (Settings > Sounds); "silent" = vibrate only. */
-export async function startRing(kind: 'incoming' | 'outgoing', tone?: string) {
+export async function startRing(kind: 'incoming' | 'calling' | 'ringback', tone?: string) {
     stopRing();
     if (kind === 'incoming') Vibration.vibrate([0, 700, 500, 700, 1600], true);
     if (kind === 'incoming' && tone === 'silent') return;
