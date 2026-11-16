@@ -1,3 +1,4 @@
+import { compressImage } from '@/lib/compress';
 import { Head, router, usePage } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, CircleDot, Eye, EyeOff, Heart, Music, ImagePlus, MessageCircle, Palette, Pause, Play, Send, ThumbsUp, Trash2, UserPlus, X } from 'lucide-react';
@@ -192,7 +193,7 @@ function Composer({ onPosted, meName }: { onPosted: () => void; meName: string }
             let media_path: string | undefined;
             if (photo) {
                 const form = new FormData();
-                form.append('file', photo.file);
+                form.append('file', await compressImage(photo.file)); // photos are made smaller first, like WhatsApp
                 media_path = (await api<{ path: string }>('/uploads', { form })).path;
             }
             await api('/status', { body: {

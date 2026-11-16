@@ -113,7 +113,7 @@ export type MediaJob = {
 export async function deliverMedia(job: MediaJob): Promise<boolean> {
     const d = await db();
     try {
-        const up = await upload({ uri: job.uri, name: job.name, mime: job.mime, size: job.size });
+        const up = await upload({ uri: job.uri, name: job.name, mime: job.mime, size: job.size }, { compress: job.type !== 'file' }); // documents are sent untouched
         const meta = { path: up.path, size: up.size, ...(job.duration ? { duration: Math.round(job.duration) } : {}) };
         const r = await api<{ message: { id: number } }>(`/conversations/${job.conversation_id}/messages`,
             { body: { client_id: job.client_id, type: job.type, body: job.body, meta, sent_at: job.sent_at, reply_to_id: job.reply_to_id } });

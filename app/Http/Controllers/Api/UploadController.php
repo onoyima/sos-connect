@@ -39,6 +39,13 @@ class UploadController extends Controller
         $name = Str::uuid().'.'.self::ALLOWED[$mime];
         Storage::disk('local')->putFileAs("uploads/{$iid}", $file, $name);
 
+        // Videos are made smaller in the background (the person doesn't wait). Phones already send them compressed.
+        if (str_starts_with($mime, 'video/') && config('sos.media.compress_videos')) {
+            config('queue.default') === 'sync'
+                ? \App\Jobs\CompressVideo::dispatchAfterResponse("uploads/{$iid}/{$name}")
+                : \App\Jobs\CompressVideo::dispatch("uploads/{$iid}/{$name}");
+        }
+
         return response()->json(['path' => "uploads/{$iid}/{$name}", 'mime' => $mime, 'size' => $file->getSize()], 201);
     }
 

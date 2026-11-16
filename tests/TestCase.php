@@ -28,6 +28,8 @@ abstract class TestCase extends BaseTestCase
         ]);
         CurrentInstitution::set(null);
         Access::forget();
+        \App\Support\PlatformSettings::forget();
+        \App\Services\Billing\Billing::forget();
     }
 
     protected function makeInstitution(string $code = 'ABC'): Institution

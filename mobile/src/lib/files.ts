@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import { config } from '@/config';
 import { api, getToken } from './api';
+import { compressForUpload } from './compress';
 
 export type Picked = { uri: string; name: string; mime: string; size?: number | null };
 export type Uploaded = { path: string; mime: string; size: number };
@@ -19,9 +20,11 @@ export async function authHeaders(): Promise<Record<string, string>> {
     return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-export async function upload(file: Picked): Promise<Uploaded> {
+/** Photos and videos are made smaller first (like WhatsApp); documents (compress: false) go exactly as they are. */
+export async function upload(file: Picked, opts: { compress?: boolean } = {}): Promise<Uploaded> {
+    const f = opts.compress === false ? file : await compressForUpload(file);
     const form = new FormData();
-    form.append('file', { uri: file.uri, name: file.name, type: file.mime } as unknown as Blob);
+    form.append('file', { uri: f.uri, name: f.name, type: f.mime } as unknown as Blob);
     return api<Uploaded>('/uploads', { form, timeoutMs: 120_000 });
 }
 

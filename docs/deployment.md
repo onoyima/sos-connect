@@ -57,6 +57,12 @@ php artisan sos:doctor
 
 It checks the database updates, file permissions and upload limits, live updates, the queue worker, the call relay and face capture, and says how to fix anything wrong.
 
+## Subscriptions, payments and media
+
+* Subscriptions and billing: see `docs/billing.md` (Paystack keys go in `.env`: `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`).
+* The scheduler (`schedule:work` above) runs `sos:billing` every hour: trials and periods ending, renewal invoices, grace periods.
+* Install ffmpeg so videos sent from the website are made smaller: `sudo apt install ffmpeg`.
+
 ## Calls
 
 Calls between different networks need a relay (TURN) server: see `docs/calls.md`.

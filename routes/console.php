@@ -72,6 +72,7 @@ Schedule::command('sos:escalate')->everyMinute()->withoutOverlapping();
 Schedule::command('sos:rotate-mesh-keys')->dailyAt('02:10');
 Schedule::command('sos:prune')->dailyAt('03:20')->withoutOverlapping();
 Schedule::command('sos:sync-structure')->dailyAt('01:40')->withoutOverlapping();
+Schedule::command('sos:billing')->hourly()->withoutOverlapping();
 
 // Brings in new or renamed faculties, departments, units, hostels and courses from each institution's records.
 // Runs nightly for institutions that switched on automatic sync; admins can also press "Sync from records".
@@ -367,6 +368,22 @@ Artisan::command('sos:doctor', function () {
             'Set up coturn (docs/calls.md) and set TURN_HOST + TURN_SECRET, or use a hosted TURN service with TURN_URLS, TURN_USERNAME, TURN_PASSWORD');
     }
 
+    $this->info('Media');
+    \App\Services\Media\VideoCompressor::available() ? $ok('ffmpeg is installed: videos sent from the website are made smaller')
+        : $note('ffmpeg is not installed: videos sent from the website keep their full size (the phone app still compresses its own)', 'sudo apt install ffmpeg   (or set FFMPEG_PATH)');
+
+    $this->info('Billing');
+    try {
+        $plans = \App\Models\Plan::where('is_active', true)->get();
+        $plans->isEmpty() ? $fail('No plans', 'php artisan migrate --force') : $ok($plans->count().' plans; subscriptions are '.(\App\Services\Billing\Billing::enforced() ? 'enforced' : 'tracked but not enforced'));
+        \App\Services\Billing\Billing::enforced() && $plans->every(fn ($p) => $p->price_monthly === 0 && $p->price_yearly === 0)
+            ? $note('Subscriptions are enforced but every plan is free', 'Set prices under Platform > Plans') : null;
+        \App\Support\PlatformSettings::get('payments.online') && ! \App\Services\Billing\Paystack::configured()
+            ? $fail('Online payment is on but Paystack keys are missing', 'Add PAYSTACK_SECRET_KEY and PAYSTACK_PUBLIC_KEY to .env, then php artisan config:cache') : null;
+    } catch (\Throwable $e) {
+        $note('Could not check billing: '.$e->getMessage(), 'php artisan migrate --force');
+    }
+
     $this->info('Face capture');
     is_file(public_path('mediapipe/face_landmarker.task')) ? $ok('Face model is on this server') : $note('Face model not downloaded (it loads from Google instead, slower)', 'php artisan sos:face-model');
     is_dir(public_path('mediapipe/wasm')) ? $ok('Face tracking files are present') : $fail('public/mediapipe/wasm is missing', 'Deploy again (the folder is part of the code)');
@@ -376,3 +393,9 @@ Artisan::command('sos:doctor', function () {
 
     return $bad ? 1 : 0;
 })->purpose('Check the server set-up (database, uploads, live updates, calls, face capture) and say how to fix problems');
+
+Artisan::command('sos:billing', function () {
+    // Trials and paid periods that ended, overdue subscriptions past their grace period, free plans renewing.
+    $changed = \App\Services\Billing\Billing::tick();
+    $changed ? array_map(fn ($l) => $this->line($l), $changed) : $this->info('No subscription changes.');
+})->purpose('Move subscriptions along: trial and period ends, renewal invoices, grace periods');

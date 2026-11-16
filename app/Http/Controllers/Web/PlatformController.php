@@ -15,11 +15,24 @@ class PlatformController extends Controller
 {
     public function institutions(): Response
     {
+        $members = \App\Models\User::query()->where('status', 'active')->whereIn('member_type', ['student', 'staff'])
+            ->selectRaw('institution_id, COUNT(*) as n')->groupBy('institution_id')->pluck('n', 'institution_id');
+
         return Inertia::render('Platform/Institutions', [
-            'institutions' => Institution::with('connector:id,institution_id,last_test_ok,last_tested_at')
+            'institutions' => Institution::with(['connector:id,institution_id,last_test_ok,last_tested_at', 'subscription.plan:id,name,max_members,price_monthly,price_yearly'])
                 ->withCount('users')->latest()->get()
                 ->map(fn ($i) => $i->only(['id', 'name', 'short_code', 'country', 'status', 'contact_name', 'contact_email', 'dpo_email',
-                    'dpa_version', 'dpa_accepted_by', 'verified_at', 'users_count']) + ['connector_ok' => (bool) $i->connector?->last_test_ok]),
+                    'dpa_version', 'dpa_accepted_by', 'verified_at', 'users_count']) + [
+                    'connector_ok' => (bool) $i->connector?->last_test_ok,
+                    'members' => (int) ($members[$i->id] ?? 0),
+                    'subscription' => $i->subscription ? [
+                        'status' => $i->subscription->status, 'plan' => $i->subscription->plan?->name, 'cycle' => $i->subscription->cycle,
+                        'renews_at' => $i->subscription->renewsAt()?->toIso8601String(), 'member_limit' => $i->subscription->memberLimit(),
+                        'price' => $i->subscription->price(),
+                    ] : null,
+                ]),
+            'stats' => PlatformBillingController::stats(),
+            'enforced' => \App\Services\Billing\Billing::enforced(),
         ]);
     }
 

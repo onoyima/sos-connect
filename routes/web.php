@@ -18,6 +18,8 @@ use App\Http\Controllers\Web\LegalController;
 use App\Http\Controllers\Web\OnboardingController;
 use App\Http\Controllers\Web\PageController;
 use App\Http\Controllers\Web\PlatformController;
+use App\Http\Controllers\Web\PlatformBillingController;
+use App\Http\Controllers\Web\SubscriptionController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/chats');
@@ -41,6 +43,9 @@ Route::get('/face/app/{ticket}', [FacePageController::class, 'app'])->where('tic
 
 Route::get('/brand/{institution}/{kind}', [BrandingController::class, 'file'])->whereNumber('institution')->whereIn('kind', ['favicon', 'icon'])->name('brand.file');
 
+// Paystack tells us about payments here (signed with our secret key; no session, no CSRF token).
+Route::post('/webhooks/paystack', [SubscriptionController::class, 'paystackWebhook'])->middleware('throttle:120,1')->name('billing.paystack.webhook');
+
 Route::get('/legal', [LegalController::class, 'index'])->name('legal.index');
 Route::get('/legal/{slug}', [LegalController::class, 'show'])->name('legal.show');
 
@@ -59,6 +64,7 @@ Route::middleware(['auth', 'member'])->group(function () {
         Route::get('/safety', [PageController::class, 'safety'])->name('safety');
     });
     Route::get('/account/privacy', [PageController::class, 'privacy'])->name('account.privacy');
+    Route::get('/billing/paystack/return', [SubscriptionController::class, 'paystackReturn'])->middleware('can.do:settings.edit')->name('billing.paystack.return');
     Route::get('/help/{slug?}', [PagesController::class, 'help'])->where('slug', '[a-z0-9-]+')->name('help');
     Route::get('/face', [FacePageController::class, 'web'])->middleware('can.do:face.capture')->name('face');
 
@@ -66,6 +72,13 @@ Route::middleware(['auth', 'member'])->group(function () {
         Route::get('/settings', [AdminController::class, 'settings'])->middleware('can.do:settings.edit')->name('settings');
         Route::post('/settings', [AdminController::class, 'saveSettings'])->middleware('can.do:settings.edit')->name('settings.save');
         Route::post('/settings/details', [AdminController::class, 'saveDetails'])->middleware('can.do:settings.edit')->name('settings.details');
+        // The institution's subscription (plan, invoices, paying).
+        Route::middleware('can.do:settings.edit')->group(function () {
+            Route::get('/subscription', [SubscriptionController::class, 'show'])->name('subscription');
+            Route::post('/subscription/plan', [SubscriptionController::class, 'choose'])->middleware('throttle:20,1')->name('subscription.plan');
+            Route::post('/subscription/cancel', [SubscriptionController::class, 'cancel'])->name('subscription.cancel');
+            Route::post('/invoices/{invoice}/pay', [SubscriptionController::class, 'pay'])->whereNumber('invoice')->middleware('throttle:20,1')->name('invoices.pay');
+        });
         Route::post('/connector', [AdminController::class, 'saveConnector'])->middleware('can.do:connector.edit')->name('connector.save');
         Route::post('/sign-in', [AdminController::class, 'saveSignIn'])->middleware('can.do:connector.edit')->name('sign-in.save');
         Route::post('/connector/test', [AdminController::class, 'testConnector'])->middleware('can.do:connector.edit')->name('connector.test');
@@ -167,5 +180,16 @@ Route::middleware(['auth', 'member'])->group(function () {
     Route::prefix('platform')->name('platform.')->middleware('can.do:platform.manage')->group(function () {
         Route::get('/institutions', [PlatformController::class, 'institutions'])->name('institutions');
         Route::post('/institutions/{institution}/status', [PlatformController::class, 'setStatus'])->name('institutions.status');
+        Route::get('/institutions/{institution}', [PlatformBillingController::class, 'show'])->whereNumber('institution')->name('institutions.show');
+        Route::post('/institutions/{institution}/subscription', [PlatformBillingController::class, 'updateSubscription'])->name('institutions.subscription');
+        Route::post('/institutions/{institution}/trial', [PlatformBillingController::class, 'extendTrial'])->name('institutions.trial');
+        Route::post('/institutions/{institution}/invoices', [PlatformBillingController::class, 'createInvoice'])->name('institutions.invoices');
+        Route::post('/invoices/{invoice}/paid', [PlatformBillingController::class, 'markPaid'])->name('invoices.paid');
+        Route::post('/invoices/{invoice}/void', [PlatformBillingController::class, 'voidInvoice'])->name('invoices.void');
+        Route::get('/plans', [PlatformBillingController::class, 'plans'])->name('plans');
+        Route::post('/plans', [PlatformBillingController::class, 'savePlan'])->name('plans.store');
+        Route::post('/plans/{plan}', [PlatformBillingController::class, 'savePlan'])->name('plans.update');
+        Route::get('/billing', [PlatformBillingController::class, 'settings'])->name('billing');
+        Route::post('/billing', [PlatformBillingController::class, 'saveSettings'])->name('billing.save');
     });
 });

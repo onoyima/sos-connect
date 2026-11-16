@@ -69,7 +69,15 @@ final class Modules
         $on = array_key_exists($module, $saved) ? (bool) $saved[$module] : self::ALL[$module]['default'];
         $parent = self::ALL[$module]['requires'] ?? null;
 
-        return $on && ($parent === null || self::enabled($institution, $parent));
+        return $on && ($parent === null || self::enabled($institution, $parent))
+            // ...and the institution's plan includes it (only when the platform enforces subscriptions).
+            && \App\Services\Billing\Billing::allowsModule($institution, $module);
+    }
+
+    /** Part of the institution's plan (whatever its admins switched on or off). */
+    public static function inPlan(?Institution $institution, string $module): bool
+    {
+        return \App\Services\Billing\Billing::allowsModule($institution, $module);
     }
 
     /** @return array<string,bool> */

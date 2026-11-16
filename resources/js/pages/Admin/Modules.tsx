@@ -1,9 +1,10 @@
 import { Head, useForm } from '@inertiajs/react';
-import { Siren } from 'lucide-react';
+import { Lock, Siren } from 'lucide-react';
+import { Link } from '@inertiajs/react';
 import AppLayout from '@/components/AppLayout';
 import { PageBody, PageHeader } from '@/components/ui';
 
-type Mod = { key: string; label: string; description: string; requires: string | null; saved: boolean; enabled: boolean };
+type Mod = { key: string; label: string; description: string; requires: string | null; saved: boolean; enabled: boolean; in_plan?: boolean };
 
 export default function Modules({ modules }: { modules: Mod[] }) {
     const form = useForm<{ modules: Record<string, boolean> }>({ modules: Object.fromEntries(modules.map((m) => [m.key, m.saved])) });
@@ -24,6 +25,19 @@ export default function Modules({ modules }: { modules: Mod[] }) {
                     {modules.map((m) => {
                         const on = !!form.data.modules[m.key];
                         const parentOff = m.requires ? !form.data.modules[m.requires] : false;
+                        if (m.in_plan === false) {
+                            return (
+                                <div key={m.key} className={`flex items-start gap-4 border-b border-line/70 px-4 py-3.5 last:border-0 ${m.requires ? 'pl-10' : ''}`}>
+                                    <div className="min-w-0 flex-1 opacity-60">
+                                        <div className="font-semibold">{m.label}</div>
+                                        <div className="text-sm text-muted">{m.description}</div>
+                                    </div>
+                                    <Link href="/admin/subscription" className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-mist px-2.5 py-1 text-xs font-semibold text-grove hover:bg-mint">
+                                        <Lock size={12} />Not in your plan
+                                    </Link>
+                                </div>
+                            );
+                        }
                         return (
                             <label key={m.key} className={`flex cursor-pointer items-start gap-4 border-b border-line/70 px-4 py-3.5 last:border-0 ${parentOff ? 'opacity-50' : ''} ${m.requires ? 'pl-10' : ''}`}>
                                 <div className="min-w-0 flex-1">

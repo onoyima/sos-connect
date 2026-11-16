@@ -41,7 +41,10 @@ export const ADMIN_TABS: NavItem[] = [
     { href: '/admin/audit', label: 'Audit log', icon: Settings, permission: 'audit.view' },
     { href: '/admin/branding', label: 'Look and icons', icon: Settings, permission: 'branding.manage' },
     { href: '/admin/design', label: 'Design document', icon: Settings, permission: 'design.view' },
+    { href: '/admin/subscription', label: 'Subscription', icon: Settings, permission: 'settings.edit' },
     { href: '/platform/institutions', label: 'Institutions', icon: Settings, permission: 'platform.manage' },
+    { href: '/platform/plans', label: 'Plans', icon: Settings, permission: 'platform.manage' },
+    { href: '/platform/billing', label: 'Billing', icon: Settings, permission: 'platform.manage' },
 ];
 
 export default function AppLayout({ title, children, hideMobileNav = false }: { title: string; children: ReactNode; hideMobileNav?: boolean }) {
@@ -193,6 +196,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
 
             <main className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {modules?.broadcasts !== false && auth && <Broadcasts />}
+                {auth?.billing && <BillingBanner b={auth.billing} />}
                 {!online && (
                     <div className="flex items-start gap-2 bg-amber/20 px-4 py-2.5 text-sm text-ink">
                         <WifiOff size={18} className="mt-0.5 shrink-0 text-[#8a5a12]" />
@@ -434,6 +438,34 @@ function SignOutDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfir
                     <button ref={yes} className="btn-danger px-4" onClick={onConfirm}>Sign out</button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+/** For school admins: the trial is ending, a payment is due, or the subscription has lapsed. */
+function BillingBanner({ b }: { b: NonNullable<NonNullable<SharedProps['auth']>['billing']> }) {
+    if (!b.enforced) return null;
+    const until = b.renews_at ? new Date(b.renews_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+    let text: string | null = null;
+    let urgent = false;
+    if (b.status === 'trialing' && b.days_left !== null && b.days_left <= b.reminder_days) {
+        text = b.days_left === 0 ? 'Your free trial ends today.' : `Your free trial ends in ${b.days_left} day${b.days_left === 1 ? '' : 's'} (${until}).`;
+    } else if (b.status === 'active' && b.days_left !== null && b.days_left <= b.reminder_days) {
+        text = b.cancel_at_period_end ? `Your subscription ends on ${until}.` : `Your subscription renews on ${until}.`;
+    } else if (b.status === 'past_due') {
+        urgent = true;
+        const g = b.grace_ends_at ? new Date(b.grace_ends_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+        text = `Payment is due${g ? `. Features stop on ${g} if it isn't paid` : ''}. SOS keeps working.`;
+    } else if (b.status === 'expired' || b.status === 'cancelled') {
+        urgent = true;
+        text = 'Your subscription has ended, so most features are off. SOS, notices and safety checks still work.';
+    }
+    if (!text) return null;
+    return (
+        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm ${urgent ? 'bg-sos/10 text-ink' : 'bg-[#e3eefc] text-ink'}`} role="status">
+            <CircleAlert size={16} className={`shrink-0 ${urgent ? 'text-sos' : 'text-[#1d4f91]'}`} />
+            <span className="min-w-0 flex-1">{text}</span>
+            <Link href="/admin/subscription" className="shrink-0 font-semibold text-leaf underline">View subscription</Link>
         </div>
     );
 }

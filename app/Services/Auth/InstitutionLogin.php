@@ -90,6 +90,14 @@ class InstitutionLogin
             }
         }
 
+        // The plan's member limit: people already here keep signing in; someone new waits until the school upgrades.
+        if (in_array($profile->type, ['student', 'staff'], true) && \App\Services\Billing\Billing::memberLimitReached($institution)
+            && ! User::inInstitution($institution->id)->where('external_id', $profile->externalId)->exists()) {
+            AuditLog::record('billing.member_limit_reached', null, ['member' => $profile->externalId], $institution->id);
+
+            return ['ok' => false, 'error' => "Your school has reached the number of members its SOS Connect plan allows, so new accounts can't be opened yet. Please tell your school's ICT unit."];
+        }
+
         $user = $this->upsertMember($institution, $profile);
 
         if ($user->status === 'suspended') {

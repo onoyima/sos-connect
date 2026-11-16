@@ -7,6 +7,8 @@ export interface SharedProps {
         super: boolean;
         /** Platform owners and school admins: the platform chat widget. */
         platform_chat?: boolean;
+        /** School admins: where the subscription stands. */
+        billing?: { enforced: boolean; status: string; plan: string | null; cycle: string; renews_at: string | null; days_left: number | null; grace_ends_at: string | null; cancel_at_period_end: boolean; reminder_days: number } | null;
         session_tag: string | null;
         face_due?: boolean;
     };

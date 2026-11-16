@@ -1,3 +1,4 @@
+import { compressImage } from '@/lib/compress';
 import { Head, usePage } from '@inertiajs/react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, ArrowLeft, AtSign, BellOff, Check, EllipsisVertical, PauseCircle, PlayCircle, Plus, CheckCheck, ChevronDown, ChevronRight, Clock, FileText, Flag, Lock, Megaphone, MessageCircle, Paperclip, Pencil, Phone, Radio, Reply, Search, SendHorizontal, Smile, SquarePen, Trash2, UserPlus, Users, UsersRound, Video, X } from 'lucide-react';
@@ -280,7 +281,8 @@ export default function Chats({ openConversationId }: { openConversationId: numb
         setTimeout(() => input.current?.focus(), 10);
     };
 
-    const attach = async (file: File) => {
+    const attach = async (picked: File) => {
+        const file = await compressImage(picked); // photos are made smaller first, like WhatsApp
         const form = new FormData();
         form.append('file', file);
         try {

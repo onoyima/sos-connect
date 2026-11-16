@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Online subscription payments. The keys live only here (.env), never in the database.
+    'paystack' => [
+        'secret' => env('PAYSTACK_SECRET_KEY'),
+        'public' => env('PAYSTACK_PUBLIC_KEY'),
+        'url' => env('PAYSTACK_URL', 'https://api.paystack.co'),
+    ],
+
 ];

@@ -185,6 +185,7 @@ class AdminController extends Controller
             'modules' => collect(Modules::ALL)->map(fn ($m, $key) => [
                 'key' => $key, 'label' => $m['label'], 'description' => $m['description'], 'requires' => $m['requires'] ?? null,
                 'saved' => (bool) (($i->settings['modules'] ?? [])[$key] ?? $m['default']), 'enabled' => Modules::enabled($i, $key),
+                'in_plan' => Modules::inPlan($i, $key),
             ])->values(),
         ]);
     }

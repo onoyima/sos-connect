@@ -118,3 +118,14 @@ export function Pager({ links }: { links: { url: string | null; label: string; a
         </nav>
     );
 }
+
+/** A number on an overview (revenue, counts). */
+export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+    return (
+        <div className="min-w-0 rounded-2xl bg-white p-4">
+            <div className="text-xs font-semibold tracking-wide break-words text-muted uppercase">{label}</div>
+            <div className="mt-1 text-lg leading-tight font-bold break-words text-grove sm:text-2xl">{value}</div>
+            {hint && <div className="mt-0.5 text-sm break-words text-muted">{hint}</div>}
+        </div>
+    );
+}

@@ -26,6 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*', headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO);
         // The site's own address is always allowed to use /api with its session (see TrustOwnHost).
         $middleware->prepend(\App\Http\Middleware\TrustOwnHost::class);
+        // Payment gateways post to us without a session; they are checked by their signature instead.
+        $middleware->validateCsrfTokens(except: ['webhooks/*']);
 
         $middleware->web(append: [
             HandleInertiaRequests::class,

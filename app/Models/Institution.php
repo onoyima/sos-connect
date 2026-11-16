@@ -31,6 +31,24 @@ class Institution extends Model
             $i->uuid ??= (string) Str::uuid();
             $i->slug ??= Str::slug($i->name);
         });
+        // Every new institution starts on a free trial of the default plan.
+        static::created(function (Institution $i) {
+            try {
+                \App\Services\Billing\Billing::start($i);
+            } catch (\Throwable $e) {
+                report($e); // no plans yet (before migrating): the platform team can set one later
+            }
+        });
+    }
+
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
     }
 
     public const DEFAULT_SETTINGS = [

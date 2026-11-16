@@ -82,6 +82,13 @@ return [
         'group_ring_limit' => (int) env('SOS_GROUP_CALL_RING_LIMIT', 50),
     ],
 
+    // Videos are made smaller after upload (like WhatsApp) when ffmpeg is installed on the server.
+    'media' => [
+        'ffmpeg' => env('FFMPEG_PATH', 'ffmpeg'),
+        'compress_videos' => (bool) env('SOS_COMPRESS_VIDEOS', true),
+        'video_min_bytes' => 1_500_000,
+    ],
+
     'push' => [
         'expo_url' => 'https://exp.host/--/api/v2/push/send',
     ],
