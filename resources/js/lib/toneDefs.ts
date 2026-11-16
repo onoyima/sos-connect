@@ -23,3 +23,12 @@ export const RINGS: Record<string, ToneDef> = {
     soft: { wave: 'sine', period: 3.2, notes: [[[392], 0.45, 0.1], [[523], 0.7, 0]] },
     pulse: { wave: 'triangle', period: 2.2, notes: [[[660], 0.15, 0.1], [[660], 0.15, 0.1], [[880], 0.25, 0]] },
 };
+
+/**
+ * What the caller hears. "calling": the call is going out but hasn't reached the other person's phone or browser
+ * yet (they may be offline). "ringback": it's ringing on their side now, waiting for them to answer.
+ */
+export const CALL_TONES: Record<'calling' | 'ringback', ToneDef> = {
+    calling: { wave: 'sine', period: 2, notes: [[[480], 0.12, 0.12], [[480], 0.12, 0]] },
+    ringback: { wave: 'sine', period: 4, notes: [[[425], 1.2, 0]] },
+};

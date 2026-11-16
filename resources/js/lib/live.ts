@@ -85,6 +85,14 @@ export function startLive(reverb: SharedProps['reverb'], userId: number, institu
     echo = getEcho(reverb);
     if (echo) {
         userChannel = echo.private(`user.${userId}`);
+        // If this page can't join its own channel, nothing personal arrives over the live connection:
+        // keep checking every few seconds instead of every half minute.
+        (userChannel as unknown as { error: (cb: (e: unknown) => void) => void }).error?.((e) => {
+            console.error('[SOS Connect] Live updates: could not join this account\'s channel; checking every few seconds instead.', e);
+            subscribed = false;
+            schedule(500);
+        });
+        (userChannel as unknown as { subscribed: (cb: () => void) => void }).subscribed?.(() => { subscribed = true; });
         if (institutionId) instChannel = echo.private(`institution.${institutionId}`);
         userHandlers.forEach((_, kind) => bindUser(kind));
         // Things every page should react to at once, not only when the regular check notices.
@@ -128,9 +136,10 @@ function watchConversations(ids: number[]) {
 }
 
 let pushOk = true;
+let subscribed: boolean | null = null; // null = not known yet
 const interval = () => {
-    if (fast > 0) return 1_000;          // in a call: setup messages must arrive quickly, live connection or not
-    if (connected && pushOk) return 30_000;
+    if (fast > 0) return 1_000;          // in a group call: setup messages must arrive quickly, live connection or not
+    if (connected && pushOk && subscribed === true) return 30_000;
     return document.hidden ? 8_000 : 3_000;
 };
 
@@ -141,8 +150,11 @@ function schedule(ms: number) {
 
 async function pulse() {
     try {
-        const r = await api<{ cursor: number; signals: { id: number; kind: string; data: any }[]; stamps: Record<Topic, string>; badges: Badges; conversation_ids: number[]; push_ok?: boolean }>(`/pulse?after=${cursor}`);
+        const r = await api<{ cursor: number; signals: { id: number; kind: string; data: any }[]; stamps: Record<Topic, string>; badges: Badges; conversation_ids: number[]; push_ok?: boolean;
+            incoming_call?: { call_uuid: string; type: string; caller: { id: number; name: string } } | null }>(`/pulse?after=${cursor}`);
         pushOk = r.push_ok !== false;
+        // A call ringing for me, from the call log itself (the call screen ignores one it already shows).
+        if (r.incoming_call) userHandlers.get('call.incoming')?.forEach((fn) => safely('call.incoming', () => fn(r.incoming_call)));
         if (cursor >= 0) r.signals.forEach((s) => deliver(s.kind, { ...s.data, _sig: s.id }));
         cursor = r.cursor;
         if (stamps) {

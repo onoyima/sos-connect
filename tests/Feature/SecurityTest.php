@@ -32,6 +32,10 @@ class SecurityTest extends TestCase
 
     public function test_one_account_is_locked_after_many_wrong_passwords_even_from_many_addresses(): void
     {
+        // Outside production nobody is ever blocked (RelaxedRateLimiter); this test checks the production limiter.
+        $this->app->instance(\Illuminate\Cache\RateLimiter::class, new \Illuminate\Cache\RateLimiter($this->app->make('cache')->driver('array')));
+        \Illuminate\Support\Facades\RateLimiter::clearResolvedInstances();
+
         $this->makeInstitution();
         $limit = (int) config('sos.security.login_per_account');
         for ($n = 1; $n <= $limit; $n++) {

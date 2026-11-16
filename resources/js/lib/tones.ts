@@ -1,4 +1,4 @@
-import { RINGS, TONES, type ToneDef } from './toneDefs';
+import { CALL_TONES, RINGS, TONES, type ToneDef } from './toneDefs';
 import type { SoundChoices } from '@/types';
 
 /**
@@ -48,12 +48,12 @@ function wav(samples: Float32Array): Blob {
     return new Blob([buf], { type: 'audio/wav' });
 }
 
-function fileFor(set: 'tone' | 'ring', id: string): string | null {
+function fileFor(set: 'tone' | 'ring' | 'call', id: string): string | null {
     const key = `${set}-${id}`;
     if (!files.has(key)) {
-        const def = set === 'ring' ? RINGS[id] : TONES[id];
+        const def = set === 'ring' ? RINGS[id] : set === 'call' ? CALL_TONES[id as 'calling'] : TONES[id];
         if (!def) return null;
-        files.set(key, URL.createObjectURL(wav(render(def, set === 'ring' ? 0.75 : 0.7, set === 'ring'))));
+        files.set(key, URL.createObjectURL(wav(render(def, set === 'tone' ? 0.7 : set === 'call' ? 0.45 : 0.75, set !== 'tone'))));
     }
     return files.get(key)!;
 }
@@ -111,6 +111,11 @@ export function startRingtone(id: string | undefined): boolean {
     if (!url) return false;
     sound('ring', url);
     return true;
+}
+/** The caller's tone, on repeat until stopRingtone(): "calling" (not reached them yet) or "ringback" (ringing there). */
+export function startCallTone(kind: 'calling' | 'ringback') {
+    const url = fileFor('call', kind);
+    if (url) sound('ring', url);
 }
 export function stopRingtone() {
     if (ringPlayer) { ringPlayer.pause(); ringPlayer.currentTime = 0; }

@@ -1,0 +1,111 @@
+name: Android app (APK)
+
+# Builds the SOS Connect Android app as an APK you can install straight on a phone (no Play Store, no Expo account).
+#  - Runs on every push to main that changes the app (mobile/), or by hand: Actions → "Android app (APK)" → Run workflow.
+#  - When it finishes, the APK is on the repository's Releases page under "Android app (latest)": open that page on
+#    the phone, download the .apk and open it (allow "Install unknown apps" for the browser when Android asks).
+#  - It is also attached to the run itself (Artifacts), kept 30 days.
+#
+# Settings → Secrets and variables → Actions (all optional):
+#   Variables: SOS_API_URL               the website the app talks to (default https://web.proveownership.com)
+#              SOS_PLATFORM_PUBLIC_KEY   from `php artisan sos:platform-keys` (lets phones verify each other offline)
+#   Secrets:   GOOGLE_SERVICES_JSON      the whole google-services.json from Firebase (needed for push notifications:
+#                                        calls and messages arriving while the app is closed)
+#
+# The APK is signed with the standard test key, which is fine for installing and testing. For the Play Store, build
+# with `eas build -p android --profile production` instead.
+on:
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write # to publish the APK on the Releases page
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPO_PUBLIC_API_URL: ${{ vars.SOS_API_URL || 'https://web.proveownership.com' }}
+      EXPO_PUBLIC_PLATFORM_PUBLIC_KEY: ${{ vars.SOS_PLATFORM_PUBLIC_KEY }}
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the app's packages
+        working-directory: mobile
+        run: npm ci
+
+      - name: Check the app's code
+        working-directory: mobile
+        run: npx tsc --noEmit
+
+      - name: Firebase settings (push notifications)
+        working-directory: mobile
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
+            echo "google-services.json added: push notifications on."
+          else
+            echo "::warning::No GOOGLE_SERVICES_JSON secret: the app works, but calls and messages only arrive while it is open."
+          fi
+
+      - name: Make the Android project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Build the APK
+        working-directory: mobile/android
+        # Real phones only (64- and 32-bit ARM): a smaller APK and a much faster build.
+        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --no-daemon --stacktrace
+
+      - name: Name the APK
+        id: apk
+        run: |
+          short=$(git rev-parse --short HEAD)
+          out="SOS-Connect-${short}.apk"
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk "$out"
+          ls -lh "$out"
+          echo "file=$out" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.file }}
+          path: ${{ steps.apk.outputs.file }}
+          retention-days: 30
+
+      - name: Publish on the Releases page
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE: ${{ steps.apk.outputs.file }}
+          SHORT: ${{ steps.apk.outputs.short }}
+        run: |
+          notes="Built from ${SHORT} on $(date -u '+%Y-%m-%d %H:%M UTC'). Open this page on the Android phone, download the .apk and open it to install (allow installing from your browser when asked). The app talks to ${EXPO_PUBLIC_API_URL}."
+          gh release delete android-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-latest "$FILE" --title "Android app (latest)" --notes "$notes" --prerelease --target "$GITHUB_SHA"

@@ -56,7 +56,7 @@ class PushNotifier
                 'data' => $data,
                 // SOS: the siren, on the phone's alarm channel (rings through Do Not Disturb on Android).
                 // Otherwise the person's chosen tone, on that tone's channel ("silent" = no sound).
-                'sound' => $urgent ? 'siren.wav' : ($tone === 'silent' ? null : ($tone ? ($ring ? "ring-{$tone}.wav" : "tone-{$tone}.wav") : 'default')),
+                'sound' => $urgent ? 'siren.wav' : ($tone === 'silent' ? null : ($tone ? ($ring ? "ring_{$tone}.wav" : "tone_{$tone}.wav") : 'default')),
                 'priority' => 'high',
                 'channelId' => $urgent ? 'sos-siren' : ($tone ? ($ring ? "ring-{$tone}" : "tone-{$tone}") : 'messages'),
                 'ttl' => $urgent ? 3600 : 86400,

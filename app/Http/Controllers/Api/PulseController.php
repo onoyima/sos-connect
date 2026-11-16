@@ -49,6 +49,13 @@ class PulseController extends Controller
             // checking every few seconds even though their own live connection looks open.
             'push_ok' => ! \Illuminate\Support\Facades\Cache::has('rt:down-reported'),
             'badges' => \App\Support\Badges::for($me),
+            // A call ringing for me now, straight from the call log: it rings even if the live signal was lost.
+            'incoming_call' => (function () use ($me) {
+                $c = \App\Models\CallLog::with('caller:id,name')->where('callee_id', $me->id)->where('status', 'ringing')
+                    ->where('started_at', '>', now()->subSeconds(45))->latest('started_at')->first();
+
+                return $c && $c->caller ? ['call_uuid' => $c->call_uuid, 'type' => $c->type, 'caller' => $c->caller->only(['id', 'name'])] : null;
+            })(),
             // So the page can listen to each chat for instant updates.
             'conversation_ids' => DB::table('conversation_members')->where('user_id', $me->id)->pluck('conversation_id'),
         ]);

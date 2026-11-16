@@ -51,7 +51,8 @@ class SecurityHeaders
     public static function policy(string $nonce): string
     {
         $live = \App\Support\Realtime::clientSettings();
-        $ws = $live && $live['host'] ? ' '.($live['scheme'] === 'https' ? 'wss' : 'ws').'://'.$live['host'].':'.$live['port'] : '';
+        // The live-update server (its own port; with no host set the page uses its own address).
+        $ws = $live ? ' '.($live['scheme'] === 'https' ? 'wss' : 'ws').'://'.($live['host'] ?: request()->getHost()).':'.$live['port'] : '';
 
         return implode('; ', [
             "default-src 'self'",

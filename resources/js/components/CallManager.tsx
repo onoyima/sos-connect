@@ -1,15 +1,16 @@
-import { Mic, MicOff, Phone, PhoneOff, Users, Video, VideoOff, X } from 'lucide-react';
+import { Circle, Mic, MicOff, Phone, PhoneOff, Square, Users, Video, VideoOff, X } from 'lucide-react';
 import { Avatar } from './ui';
 import { usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 import { api, uuid } from '@/lib/api';
 import { listenUser, liveFast } from '@/lib/live';
 import { askForCallAlerts, startRing, stopRing } from '@/lib/ring';
+import { canRecord, recordCall, type CallRecorder } from '@/lib/recorder';
 import type { SharedProps } from '@/types';
 
 type Kind = 'voice' | 'video';
 type CallInfo = { uuid: string; type: Kind; peer: { id: number; name: string }; direction: 'in' | 'out' };
-type Phase = 'idle' | 'ringing-in' | 'ringing-out' | 'connecting' | 'connected';
+type Phase = 'idle' | 'ringing-in' | 'calling' | 'ringing-out' | 'connecting' | 'connected';
 
 /** Start a one-to-one call from anywhere. */
 export function startCall(peer: { id: number; name: string }, type: Kind) {
@@ -73,16 +74,24 @@ const round = 'flex size-14 items-center justify-center rounded-full transition-
 /**
  * One-to-one WebRTC calls. All mutable call state lives in refs so the realtime listeners (registered once)
  * always see the current call.
+ *
+ * The call never depends on the live connection alone: while it's ringing or connecting, both sides also ask
+ * the server every second (/calls/{id}/poll) where the call stands and collect setup messages kept there. So a
+ * call rings, is answered and connects even when the live-update server is down or blocked.
+ *
+ * The caller hears "calling" until the call is on the other person's screen, then ringback.
  */
 function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => void }) {
-    const { auth, reverb } = usePage<SharedProps>().props;
-    const [phase, setPhase] = useState<Phase>('idle');
+    const [phase, setPhaseState] = useState<Phase>('idle');
     const [info, setInfo] = useState<CallInfo | null>(null);
     const [muted, setMuted] = useState(false);
     const [camOff, setCamOff] = useState(false);
     const [peerCamOff, setPeerCamOff] = useState(false);
     const [since, setSince] = useState<number | null>(null);
+    const [recording, setRecording] = useState(false);
+    const [peerRecording, setPeerRecording] = useState(false);
     const infoRef = useRef<CallInfo | null>(null);
+    const phaseRef = useRef<Phase>('idle');
     const pc = useRef<RTCPeerConnection | null>(null);
     const local = useRef<MediaStream | null>(null);
     const remote = useRef<MediaStream | null>(null);
@@ -90,26 +99,48 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
     const remoteEl = useRef<HTMLVideoElement>(null);
     const localEl = useRef<HTMLVideoElement>(null);
     const ringTimer = useRef<number | null>(null);
+    const connectTimer = useRef<number | null>(null);
+    const pollTimer = useRef<number | null>(null);
+    const lastSid = useRef(0);
+    const doneSids = useRef(new Set<number>());
+    const offered = useRef(false);
+    const handled = useRef(new Set<string>()); // calls already shown here (a repeat from the regular check is ignored)
+    const recorder = useRef<CallRecorder | null>(null);
     const now = useNow(phase === 'connected');
 
+    const setPhase = (p: Phase) => { phaseRef.current = p; setPhaseState(p); };
     const setCall = (c: CallInfo | null) => {
-        if (!!c !== !!infoRef.current) liveFast(!!c); // without the websocket, check for call signals every second
+        if (c) handled.current.add(c.uuid);
         infoRef.current = c; setInfo(c); busy.current.direct = !!c;
     };
 
+    const stopRecording = async () => {
+        const r = recorder.current;
+        recorder.current = null;
+        setRecording(false);
+        if (r) await r.stop();
+    };
+
     const cleanup = () => {
-        if (ringTimer.current) window.clearTimeout(ringTimer.current);
+        stopRecording().catch(() => {});
+        for (const t of [ringTimer, connectTimer]) { if (t.current) window.clearTimeout(t.current); t.current = null; }
+        if (pollTimer.current) window.clearTimeout(pollTimer.current);
+        pollTimer.current = null;
         pc.current?.close();
         pc.current = null;
         local.current?.getTracks().forEach((t) => t.stop());
         local.current = null;
         remote.current = null;
         pendingIce.current = [];
+        lastSid.current = 0;
+        doneSids.current.clear();
+        offered.current = false;
         setCall(null);
         setPhase('idle');
         setMuted(false);
         setCamOff(false);
         setPeerCamOff(false);
+        setPeerRecording(false);
         setSince(null);
     };
 
@@ -128,15 +159,105 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
             if (remoteEl.current) remoteEl.current.srcObject = e.streams[0];
         };
         peer.onconnectionstatechange = () => {
-            if (peer.connectionState === 'connected') { setPhase('connected'); setSince((s) => s ?? Date.now()); }
+            if (peer.connectionState === 'connected') {
+                if (connectTimer.current) window.clearTimeout(connectTimer.current);
+                setPhase('connected');
+                setSince((s) => s ?? Date.now()); // the call timer starts when you can actually hear each other
+            }
             if (peer.connectionState === 'failed') { onNotice('The call dropped: the connection failed.'); state('failed'); cleanup(); }
         };
         pc.current = peer;
+        // Answered but no sound path after 30 seconds: usually a network that blocks calls (a relay/TURN server is needed).
+        connectTimer.current = window.setTimeout(() => {
+            if (phaseRef.current === 'connecting') {
+                onNotice("The call was answered but couldn't connect. One of the networks is blocking it; try Wi-Fi or mobile data, or ask the admin to set up a call relay (TURN).");
+                state('failed'); cleanup();
+            }
+        }, 30_000);
         return peer;
     };
 
     const flushIce = async () => {
         for (const c of pendingIce.current.splice(0)) await pc.current?.addIceCandidate(c).catch(() => {});
+    };
+
+    // ---- What happens when news about the call arrives (over the live connection or from polling) ----
+
+    const sendOffer = async (cur: CallInfo) => {
+        if (offered.current) return;
+        offered.current = true;
+        if (ringTimer.current) window.clearTimeout(ringTimer.current);
+        setPhase('connecting');
+        try {
+            const peer = await createPeer(cur.type);
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            signal({ sdp: offer });
+        } catch (err) {
+            onNotice(mediaError(err, cur.type));
+            state('failed');
+            cleanup();
+        }
+    };
+
+    const onState = (status: string, rang?: boolean) => {
+        const cur = infoRef.current;
+        if (!cur) return;
+        if (cur.direction === 'out' && (status === 'ringing' && rang) && phaseRef.current === 'calling') setPhase('ringing-out');
+        if (status === 'answered' && cur.direction === 'out') sendOffer(cur);
+        if (['rejected', 'ended', 'missed', 'failed', 'busy'].includes(status)) {
+            if (status === 'rejected' && cur.direction === 'out') onNotice(`${cur.peer.name} declined the call.`);
+            if (status === 'busy') onNotice(`${cur.peer.name} is on another call.`);
+            if (status === 'missed' && cur.direction === 'out') onNotice(`${cur.peer.name} didn't answer.`);
+            cleanup();
+        }
+    };
+
+    const onSignal = async (data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; camera?: boolean; recording?: boolean }, sid?: number) => {
+        if (sid) {
+            if (doneSids.current.has(sid)) return; // already handled (arrived both ways)
+            doneSids.current.add(sid);
+            lastSid.current = Math.max(lastSid.current, sid);
+        }
+        const peer = pc.current;
+        if (typeof data.camera === 'boolean') setPeerCamOff(!data.camera);
+        if (typeof data.recording === 'boolean') setPeerRecording(data.recording);
+        if (data.sdp?.type === 'offer' && peer) {
+            await peer.setRemoteDescription(data.sdp);
+            await flushIce();
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            signal({ sdp: answer });
+        } else if (data.sdp?.type === 'answer' && peer && !peer.currentRemoteDescription) {
+            await peer.setRemoteDescription(data.sdp);
+            await flushIce();
+        } else if (data.candidate) {
+            if (peer?.remoteDescription) await peer.addIceCandidate(data.candidate).catch(() => {});
+            else pendingIce.current.push(data.candidate);
+        }
+    };
+
+    // While a call is on: ask the server every second until connected, then every 4 seconds (to notice hang-ups).
+    const poll = async () => {
+        const cur = infoRef.current;
+        if (!cur) return;
+        try {
+            const r = await api<{ status: string; rang: boolean; signals: { id: number; data: Parameters<typeof onSignal>[0] }[] }>(`/calls/${cur.uuid}/poll?after=${lastSid.current}`);
+            if (infoRef.current?.uuid !== cur.uuid) return;
+            for (const s of r.signals) await onSignal(s.data, s.id);
+            onState(r.status, r.rang);
+        } catch { /* offline for a moment: try again */ }
+        if (infoRef.current?.uuid === cur.uuid) pollTimer.current = window.setTimeout(poll, phaseRef.current === 'connected' ? 4000 : 1000);
+    };
+    const startPolling = () => { if (pollTimer.current) window.clearTimeout(pollTimer.current); pollTimer.current = window.setTimeout(poll, 700); };
+
+    const showIncoming = (c: { call_uuid: string; type: Kind; caller: { id: number; name: string } }) => {
+        if (infoRef.current || busy.current.group || handled.current.has(c.call_uuid)) return;
+        setCall({ uuid: c.call_uuid, type: c.type, peer: c.caller, direction: 'in' });
+        setPhase('ringing-in');
+        api(`/calls/${c.call_uuid}/ringing`, { method: 'POST' }).catch(() => {}); // the caller now hears ringing
+        ringTimer.current = window.setTimeout(() => cleanup(), 50_000);
+        startPolling();
     };
 
     useEffect(() => {
@@ -146,10 +267,13 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
             askForCallAlerts();
             const callUuid = uuid();
             setCall({ uuid: callUuid, type, peer: { id, name }, direction: 'out' });
-            setPhase('ringing-out');
+            setPhase('calling');
             try {
                 await api('/calls', { body: { callee_id: id, type, call_uuid: callUuid } });
-                ringTimer.current = window.setTimeout(() => { onNotice(`${name} didn't answer.`); state('missed'); cleanup(); }, 45_000);
+                startPolling();
+                ringTimer.current = window.setTimeout(() => {
+                    if (phaseRef.current === 'calling' || phaseRef.current === 'ringing-out') { onNotice(`${name} didn't answer.`); state('missed'); cleanup(); }
+                }, 50_000);
             } catch (err) {
                 onNotice((err as Error).message.includes('busy') || (err as { status?: number }).status === 409 ? `${name} is on another call.` : (err as Error).message);
                 cleanup();
@@ -158,60 +282,31 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
         window.addEventListener('sos:call', onStart);
 
         const offs: (() => void)[] = [];
-        offs.push(listenUser('call.incoming', (e: { call_uuid: string; type: Kind; caller: { id: number; name: string } }) => {
-            if (infoRef.current || busy.current.group) return; // busy: the server already logs it
-            setCall({ uuid: e.call_uuid, type: e.type, peer: e.caller, direction: 'in' });
-            setPhase('ringing-in');
-            ringTimer.current = window.setTimeout(() => cleanup(), 45_000);
+        offs.push(listenUser('call.incoming', showIncoming));
+        offs.push(listenUser('call.state', (e: { call_uuid: string; status: string; rang?: boolean }) => {
+            if (infoRef.current?.uuid === e.call_uuid) onState(e.status, e.rang);
         }));
-        offs.push(listenUser('call.state', async (e: { call_uuid: string; status: string }) => {
-            const cur = infoRef.current;
-            if (!cur || cur.uuid !== e.call_uuid) return;
-            if (e.status === 'answered' && cur.direction === 'out') {
-                if (ringTimer.current) window.clearTimeout(ringTimer.current);
-                setPhase('connecting');
-                try {
-                    const peer = await createPeer(cur.type);
-                    const offer = await peer.createOffer();
-                    await peer.setLocalDescription(offer);
-                    signal({ sdp: offer });
-                } catch (err) {
-                    onNotice(mediaError(err, cur.type));
-                    state('failed');
-                    cleanup();
-                }
-            } else if (['rejected', 'ended', 'missed', 'failed', 'busy'].includes(e.status)) {
-                if (e.status === 'rejected' && cur.direction === 'out') onNotice(`${cur.peer.name} declined the call.`);
-                if (e.status === 'busy') onNotice(`${cur.peer.name} is on another call.`);
-                cleanup();
-            }
-        }));
-        offs.push(listenUser('call.signal', async (e: { call_uuid: string; data: { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; camera?: boolean } }) => {
-            const cur = infoRef.current;
-            if (!cur || cur.uuid !== e.call_uuid) return;
-            const peer = pc.current;
-            if (typeof e.data.camera === 'boolean') setPeerCamOff(!e.data.camera);
-            if (e.data.sdp?.type === 'offer' && peer) {
-                await peer.setRemoteDescription(e.data.sdp);
-                await flushIce();
-                const answer = await peer.createAnswer();
-                await peer.setLocalDescription(answer);
-                signal({ sdp: answer });
-            } else if (e.data.sdp?.type === 'answer' && peer) {
-                await peer.setRemoteDescription(e.data.sdp);
-                await flushIce();
-            } else if (e.data.candidate) {
-                if (peer?.remoteDescription) await peer.addIceCandidate(e.data.candidate).catch(() => {});
-                else pendingIce.current.push(e.data.candidate);
-            }
+        offs.push(listenUser('call.signal', (e: { call_uuid: string; data: Parameters<typeof onSignal>[0]; sid?: number }) => {
+            if (infoRef.current?.uuid === e.call_uuid) onSignal(e.data, e.sid);
         }));
 
         // Opened the page from a call notification (or a call started while it was loading): show it.
         api<{ call: { call_uuid: string; type: Kind; caller: { id: number; name: string } } | null }>('/calls/pending')
-            .then((r) => { if (r.call && !infoRef.current && !busy.current.group) { setCall({ uuid: r.call.call_uuid, type: r.call.type, peer: r.call.caller, direction: 'in' }); setPhase('ringing-in'); ringTimer.current = window.setTimeout(() => cleanup(), 45_000); } })
+            .then((r) => { if (r.call) showIncoming(r.call); })
             .catch(() => {});
 
-        return () => { window.removeEventListener('sos:call', onStart); offs.forEach((f) => f()); };
+        // Closing the tab during a call ends it for the other person too.
+        const bye = () => {
+            const cur = infoRef.current;
+            if (!cur) return;
+            const token = decodeURIComponent(document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]+)/)?.[1] ?? '');
+            fetch(`/api/calls/${cur.uuid}/state`, { method: 'POST', keepalive: true, credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': token, 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ action: phaseRef.current === 'ringing-in' ? 'reject' : 'end' }) }).catch(() => {});
+        };
+        window.addEventListener('pagehide', bye);
+
+        return () => { window.removeEventListener('sos:call', onStart); window.removeEventListener('pagehide', bye); offs.forEach((f) => f()); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -221,10 +316,11 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
         if (localEl.current && local.current && localEl.current.srcObject !== local.current) localEl.current.srcObject = local.current;
     });
 
-    // Ringtone for incoming calls, ringback while calling, silence otherwise.
+    // Ringtone for incoming calls; "calling" then ringback while calling; silence otherwise.
     useEffect(() => {
         if (phase === 'ringing-in') startRing('incoming', info?.peer.name, () => window.focus());
-        else if (phase === 'ringing-out') startRing('outgoing');
+        else if (phase === 'calling') startRing('calling');
+        else if (phase === 'ringing-out') startRing('ringback');
         else stopRing();
         return () => stopRing();
     }, [phase]);
@@ -237,25 +333,34 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
         setPhase('connecting');
         try {
             await createPeer(cur.type); // media ready BEFORE we tell the caller to send an offer
-            state('answer');
+            await api(`/calls/${cur.uuid}/state`, { body: { action: 'answer' } });
         } catch (err) {
-            onNotice(mediaError(err, cur.type));
+            onNotice((err as { status?: number }).status ? 'The call has already ended.' : mediaError(err, cur.type));
             state('failed');
             cleanup();
         }
     };
-    const hangUp = () => { state(phase === 'ringing-in' ? 'reject' : 'end'); cleanup(); };
+    const hangUp = () => { state(phaseRef.current === 'ringing-in' ? 'reject' : 'end'); cleanup(); };
     const toggleCam = () => {
         const next = !camOff;
         local.current?.getVideoTracks().forEach((t) => (t.enabled = !next));
         setCamOff(next);
         signal({ camera: !next });
     };
+    const toggleRecord = async () => {
+        if (recorder.current) { await stopRecording(); signal({ recording: false }); onNotice('Recording saved to this device.'); return; }
+        try {
+            recorder.current = recordCall(local.current, remote.current, info?.type === 'video', info?.peer.name ?? 'call');
+            setRecording(true);
+            signal({ recording: true }); // the other person is told
+        } catch { onNotice("This browser can't record calls."); }
+    };
 
     if (phase === 'idle' || !info) return null;
 
     const video = info.type === 'video';
-    const statusText = phase === 'ringing-in' ? `Incoming ${info.type} call` : phase === 'ringing-out' ? 'Ringing…' : phase === 'connecting' ? 'Connecting…' : timer(since, now);
+    const statusText = phase === 'ringing-in' ? `Incoming ${info.type} call` : phase === 'calling' ? 'Calling…' : phase === 'ringing-out' ? 'Ringing…' : phase === 'connecting' ? 'Connecting…' : timer(since, now);
+    const outgoing = phase === 'calling' || phase === 'ringing-out';
     const showRemoteVideo = video && phase === 'connected' && !peerCamOff;
 
     return (
@@ -264,12 +369,12 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
             {!video && <audio ref={remoteEl as unknown as React.RefObject<HTMLAudioElement>} autoPlay />}
             {video && (
                 <video ref={localEl} autoPlay playsInline muted
-                    className={`absolute top-[calc(env(safe-area-inset-top)+16px)] right-4 z-10 h-36 w-24 -scale-x-100 rounded-2xl bg-black object-cover ring-2 ring-white/30 sm:h-44 sm:w-32 ${camOff || phase === 'ringing-in' || phase === 'ringing-out' ? 'invisible' : ''}`} />
+                    className={`absolute top-[calc(env(safe-area-inset-top)+16px)] right-4 z-10 h-36 w-24 -scale-x-100 rounded-2xl bg-black object-cover ring-2 ring-white/30 sm:h-44 sm:w-32 ${camOff || phase === 'ringing-in' || outgoing ? 'invisible' : ''}`} />
             )}
 
             <div className={`relative z-10 flex flex-col items-center px-6 pt-[calc(env(safe-area-inset-top)+64px)] ${showRemoteVideo ? 'items-start pt-[calc(env(safe-area-inset-top)+20px)]' : ''}`}>
                 {!showRemoteVideo && (
-                    <span className={`relative inline-flex rounded-full ${phase === 'ringing-in' || phase === 'ringing-out' ? 'call-pulse' : ''}`}>
+                    <span className={`relative inline-flex rounded-full ${phase === 'ringing-in' || outgoing ? 'call-pulse' : ''}`}>
                         <Avatar name={info.peer.name} size={112} />
                     </span>
                 )}
@@ -277,6 +382,12 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
                 <div className="mt-1 text-white/75 tabular-nums drop-shadow" aria-live="polite">
                     {statusText}{video && phase === 'connected' && peerCamOff ? ' · camera off' : ''}
                 </div>
+                {(recording || peerRecording) && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-sos px-3 py-1 text-xs font-semibold" role="status">
+                        <span className="size-2 animate-pulse rounded-full bg-white" />
+                        {recording && peerRecording ? 'You are both recording' : recording ? 'Recording on this device' : `${info.peer.name} is recording this call`}
+                    </div>
+                )}
             </div>
 
             <div className="relative z-10 mt-auto flex items-start justify-center gap-5 bg-gradient-to-t from-black/50 to-transparent px-6 pt-10 pb-[calc(env(safe-area-inset-bottom)+28px)] sm:gap-8">
@@ -300,8 +411,16 @@ function DirectCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => v
                                 </button>
                             </Labeled>
                         )}
-                        <Labeled label={phase === 'ringing-out' ? 'Cancel' : 'End'}>
-                            <button className={`${round} bg-sos hover:bg-sos-dark`} onClick={hangUp} aria-label={phase === 'ringing-out' ? 'Cancel call' : 'Hang up'}><PhoneOff size={24} /></button>
+                        {phase === 'connected' && canRecord() && (
+                            <Labeled label={recording ? 'Stop & save' : 'Record'}>
+                                <button className={`${round} ${recording ? 'bg-white text-sos' : 'bg-white/15 hover:bg-white/25'}`} aria-pressed={recording}
+                                    aria-label={recording ? 'Stop recording and save it to this device' : 'Record this call on this device'} onClick={toggleRecord}>
+                                    {recording ? <Square size={22} fill="currentColor" /> : <Circle size={24} />}
+                                </button>
+                            </Labeled>
+                        )}
+                        <Labeled label={outgoing ? 'Cancel' : 'End'}>
+                            <button className={`${round} bg-sos hover:bg-sos-dark`} onClick={hangUp} aria-label={outgoing ? 'Cancel call' : 'Hang up'}><PhoneOff size={24} /></button>
                         </Labeled>
                     </>
                 )}

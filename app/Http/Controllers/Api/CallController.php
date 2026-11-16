@@ -6,6 +6,7 @@ use App\Events\UserSignal;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendPush;
 use App\Models\CallLog;
+use App\Support\CallSignals;
 use App\Support\Permissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -115,11 +116,15 @@ class CallController extends Controller
         $recent = CallLog::where('started_at', '>', now()->subMinute())->where('caller_id', $me->id)->count();
         abort_if($recent >= 5, 429, 'Too many calls. Wait a minute.');
 
-        $busy = CallLog::whereIn('status', ['ringing', 'answered'])->where('started_at', '>', now()->subHours(3))
-            ->where(fn ($q) => $q->where('caller_id', $callee->id)->orWhere('callee_id', $callee->id))->exists();
+        // Busy = really in a call now: ringing in the last 50 seconds, or answered and still checking in. A call that
+        // was never ended properly (browser closed) stops counting after a minute without a sign of life.
+        $busy = CallLog::where(fn ($q) => $q->where('caller_id', $callee->id)->orWhere('callee_id', $callee->id))
+            ->where(fn ($q) => $q->where(fn ($r) => $r->where('status', 'ringing')->where('started_at', '>', now()->subSeconds(50)))
+                ->orWhere(fn ($a) => $a->where('status', 'answered')->where('active_at', '>', now()->subMinute())))->exists();
 
         $log = CallLog::create(['call_uuid' => $data['call_uuid'] ?? (string) Str::uuid(), 'caller_id' => $me->id, 'callee_id' => $callee->id,
-            'type' => $data['type'], 'status' => $busy ? 'busy' : 'ringing', 'via' => $data['via'] ?? 'online', 'started_at' => now()]);
+            'type' => $data['type'], 'status' => $busy ? 'busy' : 'ringing', 'via' => $data['via'] ?? 'online', 'started_at' => now(), 'active_at' => now()]);
+        CallSignals::prune();
 
         if ($busy) {
             return response()->json(['call_uuid' => $log->call_uuid, 'status' => 'busy'], 409);
@@ -138,7 +143,47 @@ class CallController extends Controller
         $log = $this->party($request, $uuid);
         $data = $request->validate(['data' => 'required|array']);
         abort_if(strlen(json_encode($data['data'])) > 16_000, 413);
-        UserSignal::dispatch($this->other($log, $request->user()->id), 'call.signal', ['call_uuid' => $uuid, 'data' => $data['data']]);
+        abort_if(in_array($log->status, ['ended', 'rejected', 'missed', 'failed', 'busy'], true), 410, 'The call has ended.');
+        $to = $this->other($log, $request->user()->id);
+        // Kept until the other side collects it (poll), and also pushed at once over the live connection if it's up.
+        $sid = CallSignals::put($uuid, $to, $data['data']);
+        UserSignal::dispatch($to, 'call.signal', ['call_uuid' => $uuid, 'data' => $data['data'], 'sid' => $sid]);
+
+        return response()->json(['ok' => true, 'sid' => $sid]);
+    }
+
+    /**
+     * Checked every second by both sides while a call is ringing or connecting (and every few seconds during it):
+     * where the call stands, whether it's ringing on the other side, and setup messages not yet collected.
+     */
+    public function poll(Request $request, string $uuid): JsonResponse
+    {
+        $log = $this->party($request, $uuid);
+        $me = (int) $request->user()->id;
+        if (! $log->active_at || $log->active_at->lt(now()->subSeconds(10))) {
+            $log->forceFill(['active_at' => now()])->saveQuietly();
+        }
+        // Ringing that nobody answered for 50 seconds is a missed call (even if the caller's page was closed).
+        if ($log->status === 'ringing' && $log->started_at->lt(now()->subSeconds(50))) {
+            $log->update(['status' => 'missed', 'ended_at' => now()]);
+        }
+
+        return response()->json([
+            'status' => $log->status,
+            'rang' => (bool) $log->rang_at,
+            'answered_at' => $log->answered_at?->toIso8601String(),
+            'signals' => CallSignals::since($uuid, $me, (int) $request->query('after', 0)),
+        ]);
+    }
+
+    /** The person being called has it on their screen: the caller now hears ringing instead of "calling". */
+    public function ringing(Request $request, string $uuid): JsonResponse
+    {
+        $log = $this->party($request, $uuid);
+        if ((int) $log->callee_id === (int) $request->user()->id && $log->status === 'ringing' && ! $log->rang_at) {
+            $log->forceFill(['rang_at' => now(), 'active_at' => now()])->save();
+            UserSignal::dispatch($log->caller_id, 'call.state', ['call_uuid' => $uuid, 'status' => 'ringing', 'rang' => true]);
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -154,7 +199,13 @@ class CallController extends Controller
             'failed' => ['status' => 'failed', 'ended_at' => now()],
             'end' => ['status' => $log->answered_at ? 'ended' : 'missed', 'ended_at' => now()],
         };
-        $log->update($updates);
+        if (in_array($log->status, ['ended', 'rejected', 'missed', 'failed', 'busy'], true) && $action !== 'end') {
+            return response()->json(['status' => $log->status]); // already over
+        }
+        $log->update($updates + ['active_at' => now()]);
+        if ($log->ended_at) {
+            CallSignals::forget($uuid);
+        }
         UserSignal::dispatch($this->other($log, $request->user()->id), 'call.state', ['call_uuid' => $uuid, 'status' => $log->status]);
         if ($log->status === 'missed') {
             SendPush::dispatchAfterResponse([$log->callee_id], 'Missed call', ($log->caller?->name ?? 'Someone').' called you', ['type' => 'call_missed']);

@@ -129,6 +129,10 @@ Route::middleware(['auth:sanctum', 'member', 'throttle:api'])->group(function ()
     Route::post('/calls', [Api\CallController::class, 'start']);
     Route::post('/calls/{uuid}/signal', [Api\CallController::class, 'signal'])->middleware('throttle:300,1');
     Route::post('/calls/{uuid}/state', [Api\CallController::class, 'update']);
+    Route::get('/calls/{uuid}/poll', [Api\CallController::class, 'poll'])->middleware('throttle:200,1');
+    Route::post('/calls/{uuid}/ringing', [Api\CallController::class, 'ringing']);
+    // Live-update channel sign-in for the website (its session cookie); the phone app uses /broadcasting/auth.
+    Route::post('/broadcasting/auth', fn (\Illuminate\Http\Request $request) => \Illuminate\Support\Facades\Broadcast::auth($request));
     Route::post('/conversations/{conversation}/call', [Api\GroupCallController::class, 'start'])->middleware('throttle:10,1');
     Route::get('/conversations/{conversation}/call', [Api\GroupCallController::class, 'current']);
     Route::get('/group-calls/{uuid}', [Api\GroupCallController::class, 'show']);
