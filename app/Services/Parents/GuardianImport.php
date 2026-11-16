@@ -26,7 +26,7 @@ class GuardianImport
                 $email = $g['email'] ?: null;
                 // Find the same parent across siblings: by email, else by phone.
                 $parent = User::inInstitution($institution->id)->where('member_type', 'parent')
-                    ->where(fn ($q) => $email ? $q->where('email', $email) : $q->where('phone', $g['phone']))->first();
+                    ->where(fn ($q) => $email ? $q->where('email', $email) : $q->where('phone_index', \App\Support\Sealed::phoneIndex($g['phone'])))->first();
                 if (! $parent && $email && User::inInstitution($institution->id)->where('email', $email)->exists()) {
                     continue; // that email belongs to a student or staff member; don't merge accounts
                 }

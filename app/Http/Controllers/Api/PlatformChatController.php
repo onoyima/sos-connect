@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\PlatformChat\PlatformChat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\Sealed;
 use Illuminate\Support\Facades\DB;
 
 /** The platform chat widget: platform owners ↔ each other ↔ school admins (see PlatformChat for the rules). */
@@ -42,7 +43,7 @@ class PlatformChatController extends Controller
                 'name' => $t->is_group ? ($t->title ?: $others->pluck('name')->take(3)->implode(', ')) : ($others[0]['name'] ?? 'Conversation'),
                 'where' => $t->is_group ? $others->count().' people' : ($others[0]['where'] ?? ''),
                 'people' => $others,
-                'last' => $m ? ['body' => mb_substr($m->body, 0, 120), 'mine' => (int) $m->user_id === (int) $me->id, 'at' => $m->created_at] : null,
+                'last' => $m ? ['body' => mb_substr((string) Sealed::open($m->body), 0, 120), 'mine' => (int) $m->user_id === (int) $me->id, 'at' => $m->created_at] : null,
                 'unread' => $unread,
             ];
         });
@@ -103,7 +104,7 @@ class PlatformChatController extends Controller
         }
 
         return response()->json(['messages' => $rows->map(fn ($m) => [
-            'id' => $m->id, 'body' => $m->body, 'at' => $m->created_at, 'mine' => (int) $m->user_id === (int) $me->id,
+            'id' => $m->id, 'body' => Sealed::open($m->body), 'at' => $m->created_at, 'mine' => (int) $m->user_id === (int) $me->id,
             'from' => $m->user_id ? ($names[$m->user_id] ?? 'Someone') : 'Removed account',
         ])]);
     }
@@ -116,7 +117,7 @@ class PlatformChatController extends Controller
         $body = trim($data['body']);
         abort_if($body === '', 422, 'Write a message first.');
 
-        $id = DB::table('platform_messages')->insertGetId(['thread_id' => $thread, 'user_id' => $me->id, 'body' => $body,
+        $id = DB::table('platform_messages')->insertGetId(['thread_id' => $thread, 'user_id' => $me->id, 'body' => Sealed::seal($body), // stored encrypted
             'created_at' => now(), 'updated_at' => now()]);
         DB::table('platform_threads')->where('id', $thread)->update(['last_message_at' => now(), 'updated_at' => now()]);
         DB::table('platform_thread_members')->where('thread_id', $thread)->where('user_id', $me->id)->update(['last_read_id' => $id]);

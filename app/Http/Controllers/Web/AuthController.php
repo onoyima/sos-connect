@@ -11,7 +11,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\RateLimiter;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,18 +29,18 @@ class AuthController extends Controller
             'password' => 'required|string|max:200',
         ]);
 
-        $key = 'web-login:'.$request->ip().'|'.mb_strtolower($data['identifier']);
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            return back()->withErrors(['identifier' => 'Too many attempts. Try again in 15 minutes.']);
+        $guard = new \App\Services\Auth\LoginGuard($request, $data['identifier']);
+        if ($wait = $guard->blocked()) {
+            return back()->withErrors(['identifier' => $wait]);
         }
 
         $result = $signIn->attempt($data['identifier'], $data['password']);
         if (! $result['ok']) {
-            RateLimiter::hit($key, 900);
+            $guard->failed();
 
             return back()->withErrors(['identifier' => $result['error']])->onlyInput('identifier');
         }
-        RateLimiter::clear($key);
+        $guard->succeeded();
 
         $user = $result['user'];
         Auth::login($user);

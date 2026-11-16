@@ -19,6 +19,8 @@ return [
         'timeout' => (int) env('SOS_CONNECTOR_TIMEOUT', 8),      // seconds
         'max_clock_skew' => 300,                                 // seconds allowed between us and the connector
         'require_https' => env('SOS_CONNECTOR_REQUIRE_HTTPS', true),
+        // Connectors on private/internal addresses (10.x, 192.168.x, localhost…) are refused unless this is true.
+        'allow_private_hosts' => env('SOS_CONNECTOR_ALLOW_PRIVATE', false),
 
 
         // Direct mode: this app reads an institution's records database itself (no separate connector to run).
@@ -83,6 +85,15 @@ return [
     ],
 
     // Videos are made smaller after upload (like WhatsApp) when ffmpeg is installed on the server.
+    // Security switches (see docs/security.md).
+    'security' => [
+        // Content-Security-Policy: enforce (default) | report (log violations only) | off.
+        'csp' => env('SECURITY_CSP', 'enforce'),
+        // Failed sign-ins: per account+address (5 per 15 min), per account from anywhere, per address across accounts.
+        'login_per_account' => (int) env('SECURITY_LOGIN_PER_ACCOUNT', 15),   // per hour, all addresses together
+        'login_per_ip' => (int) env('SECURITY_LOGIN_PER_IP', 40),             // per hour, all accounts together
+    ],
+
     'media' => [
         'ffmpeg' => env('FFMPEG_PATH', 'ffmpeg'),
         'compress_videos' => (bool) env('SOS_COMPRESS_VIDEOS', true),

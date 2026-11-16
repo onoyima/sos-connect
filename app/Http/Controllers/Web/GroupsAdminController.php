@@ -29,7 +29,7 @@ class GroupsAdminController extends Controller
 
         $groups = Conversation::query()->whereIn('type', ['community', 'auto_group', 'group'])
             ->when($units !== null, fn ($q) => $q->whereIn('org_unit_id', $units ?: [0]))
-            ->when($request->query('q'), fn ($q, $s) => $q->where('name', 'like', "%{$s}%"))
+            ->when($request->query('q'), fn ($q, $s) => $q->where('name', 'like', '%'.addcslashes(mb_substr((string) $s, 0, 80), '%_\\').'%'))
             ->orderByRaw("case type when 'community' then 0 when 'auto_group' then 1 else 2 end")->orderBy('name')
             ->limit(1500)->get();
         $counts = ConversationMember::whereIn('conversation_id', $groups->pluck('id'))->select('conversation_id', DB::raw('count(*) as n'))
@@ -52,7 +52,7 @@ class GroupsAdminController extends Controller
         $this->authorizeArea($me, $conversation, 'groups.view');
         $search = trim((string) $request->query('q'));
         $members = ConversationMember::with('user:id,name,identifier,title,member_type')->where('conversation_id', $conversation->id)
-            ->when($search, fn ($q) => $q->whereHas('user', fn ($u) => $u->where('name', 'like', "%{$search}%")->orWhere('identifier', $search)))
+            ->when($search, fn ($q) => $q->whereHas('user', fn ($u) => $u->where('name', 'like', '%'.addcslashes(mb_substr((string) $search, 0, 80), '%_\\').'%')->orWhere('identifier', $search)))
             ->orderByRaw("case when role = 'admin' then 0 else 1 end")->orderBy('id')->paginate(40)->withQueryString();
 
         return Inertia::render('Admin/GroupShow', [

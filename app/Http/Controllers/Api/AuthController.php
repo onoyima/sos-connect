@@ -9,7 +9,6 @@ use App\Services\Auth\SignIn;
 use App\Support\Permissions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\RateLimiter;
 
 class AuthController extends Controller
 {
@@ -21,9 +20,9 @@ class AuthController extends Controller
             'device_name' => 'nullable|string|max:60',
         ]);
 
-        $key = 'login:'.$request->ip().'|'.mb_strtolower($data['identifier']);
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            return response()->json(['message' => 'Too many attempts. Try again in '.ceil(RateLimiter::availableIn($key) / 60).' minutes.'], 429);
+        $guard = new \App\Services\Auth\LoginGuard($request, $data['identifier']);
+        if ($wait = $guard->blocked()) {
+            return response()->json(['message' => $wait], 429);
         }
 
         $result = $signIn->attempt($data['identifier'], $data['password']);
@@ -31,11 +30,11 @@ class AuthController extends Controller
             $result = ['ok' => false, 'error' => SignIn::FAILED]; // platform operators use the website
         }
         if (! $result['ok']) {
-            RateLimiter::hit($key, 15 * 60);
+            $guard->failed();
 
             return response()->json(['message' => $result['error']], 422);
         }
-        RateLimiter::clear($key);
+        $guard->succeeded();
 
         $user = $result['user'];
         $token = $user->createToken($data['device_name'] ?? 'mobile', ['*'], now()->addDays(30));

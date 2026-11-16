@@ -44,6 +44,13 @@ Route::get('/face/app/{ticket}', [FacePageController::class, 'app'])->where('tic
 Route::get('/brand/{institution}/{kind}', [BrandingController::class, 'file'])->whereNumber('institution')->whereIn('kind', ['favicon', 'icon'])->name('brand.file');
 
 // Paystack tells us about payments here (signed with our secret key; no session, no CSRF token).
+// Browsers report blocked content here (Content-Security-Policy); logged so a real attack or a mistake shows up.
+Route::post('/csp-report', function (\Illuminate\Http\Request $request) {
+    $r = (array) (json_decode($request->getContent(), true)['csp-report'] ?? []);
+    \Illuminate\Support\Facades\Log::channel(config('logging.default'))->warning('CSP blocked', array_intersect_key($r, array_flip(['document-uri', 'violated-directive', 'blocked-uri', 'source-file', 'line-number'])));
+
+    return response()->noContent();
+})->middleware('throttle:30,1');
 Route::post('/webhooks/paystack', [SubscriptionController::class, 'paystackWebhook'])->middleware('throttle:120,1')->name('billing.paystack.webhook');
 
 Route::get('/legal', [LegalController::class, 'index'])->name('legal.index');

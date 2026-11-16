@@ -118,6 +118,9 @@ class AdminController extends Controller
             $newSecret = Str::random(64);
             $connector->secret = $newSecret;
         }
+        if (! $direct && ! app()->isLocal() && ($why = \App\Support\SafeUrl::problem($data['base_url']))) {
+            return back()->withErrors(['base_url' => $why]);
+        }
         $connector->base_url = rtrim($data['base_url'], '/');
         $connector->save();
         AuditLog::record('connector.saved', $connector, ['rotated' => (bool) $newSecret]);

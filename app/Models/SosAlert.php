@@ -24,6 +24,7 @@ class SosAlert extends Model
     {
         return [
             'lat' => 'float', 'lng' => 'float',
+            'message' => 'encrypted', 'location_label' => 'encrypted', 'resolution_note' => 'encrypted', // stored encrypted
             'raised_at' => 'datetime', 'acknowledged_at' => 'datetime', 'escalated_at' => 'datetime',
             'resolved_at' => 'datetime', 'location_blurred_at' => 'datetime',
         ];

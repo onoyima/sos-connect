@@ -46,7 +46,7 @@ class FacesAdminController extends Controller
             default => null,
         };
         if ($s = trim((string) $request->query('q'))) {
-            $q->where(fn ($w) => $w->where('name', 'like', "%{$s}%")->orWhere('identifier', $s));
+            $q->where(fn ($w) => $w->where('name', 'like', '%'.addcslashes(mb_substr((string) $s, 0, 80), '%_\\').'%')->orWhere('identifier', $s));
         }
         if (in_array($type = $request->query('type'), self::TYPES, true)) {
             $q->where('member_type', $type);

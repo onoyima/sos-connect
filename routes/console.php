@@ -302,6 +302,18 @@ Artisan::command('sos:doctor', function () {
     $life = (int) config('session.lifetime');
     $life < 1440 ? $note("Sign-ins end after {$life} minutes without use", 'Set SESSION_LIFETIME=43200 (30 days), then php artisan config:cache') : $ok('Sign-ins last '.round($life / 1440).' days without use');
 
+    $this->info('Security');
+    app()->isProduction() ? $ok('APP_ENV=production') : $note('APP_ENV is '.app()->environment(), 'Set APP_ENV=production on the live server');
+    strlen((string) config('app.key')) >= 40 ? $ok('App key set (encrypts sessions and personal data)') : $fail('APP_KEY is missing', 'php artisan key:generate (once; never change it afterwards, or encrypted data is lost)');
+    config('session.secure') || ! app()->isProduction() ? $ok('Sign-in cookie only sent over https') : $fail('Sign-in cookie can be sent without https', 'Set SESSION_SECURE_COOKIE=true');
+    config('session.encrypt') ? $ok('Sessions stored encrypted') : $note('Sessions are not encrypted', 'Set SESSION_ENCRYPT=true');
+    config('session.http_only') ? $ok('Scripts cannot read the sign-in cookie') : $fail('SESSION_HTTP_ONLY is off', 'Set SESSION_HTTP_ONLY=true');
+    config('sos.security.csp') === 'enforce' ? $ok('Content-Security-Policy enforced') : $note('Content-Security-Policy is '.config('sos.security.csp'), 'Set SECURITY_CSP=enforce');
+    $maps = glob(public_path('build/assets/*.map')) ?: [];
+    $maps ? $fail(count($maps).' source map files are published', 'Delete public/build/assets/*.map and rebuild (npm run build)') : $ok('No source maps published (the browser shows only minified code)');
+    file_exists(public_path('.env')) || file_exists(public_path('storage/../.env')) ? $fail('.env is inside public/', 'Move it: the web root must be public/ only') : $ok('.env is not in the web root');
+    \Illuminate\Support\Facades\Schema::hasColumn('users', 'phone_index') ? $ok('Personal data encryption is set up') : $fail('Personal data is not encrypted yet', 'php artisan migrate --force');
+
     $this->info('Files and uploads');
     foreach ([storage_path('app'), storage_path('app/private'), storage_path('framework/sessions'), storage_path('logs'), base_path('bootstrap/cache')] as $dir) {
         if (! is_dir($dir)) { @mkdir($dir, 0775, true); }

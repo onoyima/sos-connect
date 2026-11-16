@@ -24,11 +24,22 @@ class User extends Authenticatable
         'guardian_consent_at', 'last_seen_at', 'calls_seen_at', 'policy_version', 'policy_accepted_at',
     ];
 
-    protected $hidden = ['password', 'remember_token', 'token_version', 'web_session_id', 'web_session_ip', 'web_session_agent'];
+    protected $hidden = ['password', 'remember_token', 'token_version', 'web_session_id', 'web_session_ip', 'web_session_agent', 'phone_index'];
+
+    protected static function booted(): void
+    {
+        // Phone numbers are encrypted, so a keyed fingerprint is kept for finding someone by their number.
+        static::saving(function (User $u) {
+            if ($u->isDirty('phone')) {
+                $u->phone_index = \App\Support\Sealed::phoneIndex($u->phone);
+            }
+        });
+    }
 
     protected function casts(): array
     {
         return [
+            'phone' => 'encrypted', 'whatsapp' => 'encrypted', // stored encrypted (see Sealed)
             'preferences' => 'array', 'show_whatsapp' => 'boolean',
             'password' => 'hashed',
             'is_minor' => 'boolean',

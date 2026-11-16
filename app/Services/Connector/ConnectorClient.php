@@ -183,8 +183,12 @@ class ConnectorClient
         $nonce = Str::random(32);
         $signature = hash_hmac('sha256', implode("\n", [$ts, $nonce, $method, $path, hash('sha256', $raw)]), $this->connector->secret);
 
+        if (! app()->runningUnitTests() && ($why = \App\Support\SafeUrl::problem($base))) {
+            throw new RuntimeException("Institution connector address refused: {$why}");
+        }
         try {
             $response = Http::timeout(config('sos.connector.timeout'))
+                ->withOptions(['allow_redirects' => false]) // never follow a redirect somewhere else
                 ->withHeaders([
                     'X-SOS-Key' => $this->connector->key_id,
                     'X-SOS-Timestamp' => $ts,

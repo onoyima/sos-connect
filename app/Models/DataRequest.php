@@ -11,7 +11,7 @@ class DataRequest extends Model
 
     protected function casts(): array
     {
-        return ['due_at' => 'datetime', 'completed_at' => 'datetime'];
+        return ['due_at' => 'datetime', 'completed_at' => 'datetime', 'details' => 'encrypted'];
     }
 
     public function user(): BelongsTo

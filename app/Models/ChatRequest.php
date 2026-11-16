@@ -15,7 +15,7 @@ class ChatRequest extends Model
 
     protected function casts(): array
     {
-        return ['responded_at' => 'datetime'];
+        return ['responded_at' => 'datetime', 'message' => 'encrypted'];
     }
 
     public function sender(): BelongsTo

@@ -34,7 +34,7 @@
         </div>
         <style>@keyframes bootbar{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}</style>
     </div>
-    <script>
+    <script nonce="{{ \Illuminate\Support\Facades\Vite::cspNonce() }}">
         window.__sosReady = function () {
             var b = document.getElementById('boot');
             if (!b) return;

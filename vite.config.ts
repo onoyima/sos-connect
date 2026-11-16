@@ -10,5 +10,7 @@ export default defineConfig({
         tailwindcss(),
     ],
     resolve: { alias: { '@': '/resources/js' } },
+    // No source maps in production: the browser only ever gets minified code, never the original source.
+    build: { sourcemap: false },
     server: { watch: { ignored: ['**/storage/framework/views/**', '**/mobile/**', '**/edge-node/**'] } },
 });

@@ -82,6 +82,13 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     // Keep what's on screen for the next visit, so coming back to Chats (or reopening a chat) is instant.
     useEffect(() => { kept.conversations = conversations; kept.communities = communities; }, [conversations, communities]);
     useEffect(() => { if (activeId) remember(activeId, messages); }, [activeId, messages]);
+    // Opening a chat or group puts the cursor in the message box, ready to type (like WhatsApp on a computer).
+    // Not on touch phones: the keyboard would pop up and cover the messages.
+    useEffect(() => {
+        if (!activeId || window.matchMedia('(pointer: coarse)').matches) return;
+        const t = window.setTimeout(() => input.current?.focus({ preventScroll: true }), 60);
+        return () => window.clearTimeout(t);
+    }, [activeId]);
     useEffect(() => {
         const ready = () => { setLoaded(true); (window as { __sosReady?: () => void }).__sosReady?.(); };
         if (auth!.permissions.includes('chat.use')) loadConversations().then(ready, ready); else ready();

@@ -27,7 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // The site's own address is always allowed to use /api with its session (see TrustOwnHost).
         $middleware->prepend(\App\Http\Middleware\TrustOwnHost::class);
         // Payment gateways post to us without a session; they are checked by their signature instead.
-        $middleware->validateCsrfTokens(except: ['webhooks/*']);
+        $middleware->validateCsrfTokens(except: ['webhooks/*', 'csp-report']);
 
         $middleware->web(append: [
             HandleInertiaRequests::class,

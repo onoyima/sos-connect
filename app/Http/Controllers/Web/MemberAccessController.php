@@ -38,7 +38,7 @@ class MemberAccessController extends Controller
             $q->where(fn ($w) => $w->whereIn('department_unit_id', $units ?: [0])->orWhereIn('faculty_unit_id', $units ?: [0])->orWhereIn('admin_unit_id', $units ?: [0]));
         }
         if ($s = trim((string) $request->query('q'))) {
-            $q->where(fn ($w) => $w->where('name', 'like', "%{$s}%")->orWhere('identifier', $s)->orWhere('email', $s));
+            $q->where(fn ($w) => $w->where('name', 'like', '%'.addcslashes(mb_substr((string) $s, 0, 80), '%_\\').'%')->orWhere('identifier', $s)->orWhere('email', $s));
         }
         if ($type = $request->query('type')) {
             $q->where('member_type', $type);
