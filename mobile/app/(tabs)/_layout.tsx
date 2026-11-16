@@ -18,6 +18,7 @@ export default function TabsLayout() {
     const [unread, setUnread] = useState(0);
     const [inCommunities, setInCommunities] = useState(0);
     const [requests, setRequests] = useState(currentBadges().requests);
+    const [sos, setSos] = useState(currentBadges().sos ?? 0); // open SOS alerts I'm meant to respond to
 
     // Red counts: chats with unread messages (plus chat requests), and unread groups inside communities.
     useEffect(() => {
@@ -31,7 +32,7 @@ export default function TabsLayout() {
         load();
         const a = on('conversations', load);
         const b = on('messages', load);
-        const c = on('badges', (x) => setRequests(x.requests));
+        const c = on('badges', (x) => { setRequests(x.requests); setSos(x.sos ?? 0); });
         return () => { a(); b(); c(); };
     }, []);
 
@@ -52,6 +53,11 @@ export default function TabsLayout() {
                 tabBarIcon: () => (
                     <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: colors.sos, alignItems: 'center', justifyContent: 'center', marginTop: -14, borderWidth: 3, borderColor: '#fff' }}>
                         <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13 }}>SOS</Text>
+                        {sos > 0 && (
+                            <View style={{ position: 'absolute', top: -6, right: -8, minWidth: 20, height: 20, borderRadius: 10, backgroundColor: colors.amber, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 }}>
+                                <Text style={{ color: colors.ink, fontWeight: '900', fontSize: 11 }}>{sos > 99 ? '99+' : sos}</Text>
+                            </View>
+                        )}
                     </View>
                 ),
                 tabBarLabel: () => null,

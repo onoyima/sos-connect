@@ -90,6 +90,10 @@ Route::middleware(['auth', 'member'])->group(function () {
         // Members and their access (each action also checks the member is inside the admin's areas)
         Route::middleware('can.do:members.view')->group(function () {
             Route::get('/members', [MemberAccessController::class, 'index'])->name('members');
+            // Accounts members closed ("Delete my account"): kept for tracing, and can be restored.
+            Route::get('/deleted-accounts', [\App\Http\Controllers\Web\DeletedAccountsController::class, 'index'])->name('deleted');
+            Route::get('/deleted-accounts/export', [\App\Http\Controllers\Web\DeletedAccountsController::class, 'export'])->middleware('throttle:10,1')->name('deleted.export');
+            Route::post('/deleted-accounts/{record}/restore', [\App\Http\Controllers\Web\DeletedAccountsController::class, 'restore'])->whereNumber('record')->middleware('can.do:members.suspend')->name('deleted.restore');
             Route::get('/members/{id}', [MemberAccessController::class, 'show'])->whereNumber('id')->name('members.show');
             Route::post('/members/{id}/roles', [MemberAccessController::class, 'assignRole'])->name('members.roles.assign');
             Route::delete('/members/{id}/roles/{assignment}', [MemberAccessController::class, 'removeRole'])->name('members.roles.remove');

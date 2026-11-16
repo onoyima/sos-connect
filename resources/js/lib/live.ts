@@ -17,7 +17,7 @@ import type { ChatMessage, SharedProps } from '@/types';
  *   onBadges(fn)                           the red counts
  */
 export type Topic = 'messages' | 'conversations' | 'sos' | 'announcements' | 'safety' | 'status';
-export type Badges = { chats: number; calls: number; requests: number };
+export type Badges = { chats: number; calls: number; requests: number; sos?: number };
 type Handler = (data: any) => void;
 type Channel = ReturnType<NonNullable<ReturnType<typeof getEcho>>['private']>;
 
@@ -62,7 +62,8 @@ const deliver = (kind: string, data: any) => {
         if (seen.length > 300) seen.splice(0, 100);
     }
     userHandlers.get(kind)?.forEach((fn) => safely(kind, () => fn(data)));
-    if (kind.startsWith('call.') || kind.startsWith('chat_request.')) refreshBadges();
+    if (kind.startsWith('call.') || kind.startsWith('chat_request.') || kind.startsWith('sos.')) refreshBadges();
+    if (kind.startsWith('sos.')) fire('sos');
     if (kind.startsWith('chat_request.')) fire('conversations');
 };
 

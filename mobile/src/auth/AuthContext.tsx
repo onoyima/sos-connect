@@ -136,6 +136,13 @@ async function pushToken(): Promise<string | null> {
     try {
         const perm = await Notifications.requestPermissionsAsync();
         if (!perm.granted) return null;
+        // SOS alarms: the siren, through Do Not Disturb, played like an alarm clock, shown in full on the lock screen.
+        await Notifications.setNotificationChannelAsync('sos-siren', {
+            name: 'SOS alarm', description: 'Rings with a siren when someone near you presses SOS.',
+            importance: Notifications.AndroidImportance.MAX, bypassDnd: true, sound: 'siren.wav', enableVibrate: true,
+            vibrationPattern: [0, 900, 300, 900, 300, 900, 300, 900], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+            audioAttributes: { usage: Notifications.AndroidAudioUsage.ALARM, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
+        });
         await Notifications.setNotificationChannelAsync('sos', { name: 'SOS alerts', importance: Notifications.AndroidImportance.MAX, bypassDnd: true, sound: 'default', vibrationPattern: [0, 500, 300, 500, 300, 500] });
         await Notifications.setNotificationChannelAsync('messages', { name: 'Messages', importance: Notifications.AndroidImportance.DEFAULT });
         const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } })?.eas?.projectId;

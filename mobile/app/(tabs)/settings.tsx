@@ -20,10 +20,15 @@ export default function Me() {
     const [sosLocation, setSosLocation] = useState(true);
     useEffect(() => { kvGet<boolean>('pref.sosLocation').then((v) => setSosLocation(v ?? true)); }, []);
 
-    const deleteAccount = () => Alert.alert('Delete account?', 'Removes your profile, messages and statuses here. Your record at the institution is not affected.', [
+    const deleteAccount = () => Alert.alert('Delete your account?',
+        "You'll be signed out everywhere and can't sign in again unless your school restores it. Your institution keeps a record of the account and what was sent from it. Your request to erase your data goes to its data protection officer.", [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: async () => {
-            try { await api('/privacy/account', { method: 'DELETE', body: { confirm: 'DELETE' } }); await logout(); } catch (e) { Alert.alert('Needs internet', (e as Error).message); }
+            try {
+                await api('/privacy/account', { method: 'DELETE', body: { confirm: 'DELETE' } });
+                await logout({ local: true }); // already signed out by the server
+                Alert.alert('Account closed', "If you want it back, ask your school's ICT unit to restore it.");
+            } catch (e) { Alert.alert('Needs internet', (e as Error).message); }
         } },
     ]);
     const signOut = () => Alert.alert('Sign out?', 'Everything stored on this phone is removed. Your chats come back when you sign in again.', [

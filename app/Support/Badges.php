@@ -29,6 +29,13 @@ class Badges
             + (int) DB::table('chat_requests')->where('from_id', $me->id)->whereIn('status', ['accepted', 'declined'])
                 ->whereNull('sender_seen_at')->where('responded_at', '>', now()->subDays(14))->count();
 
-        return ['chats' => $chats, 'calls' => $calls, 'requests' => $requests];
+        // SOS alerts still going on that I'm meant to see (campus security, wardens, admins…), not my own.
+        $sos = 0;
+        if ($me->institution_id && Access::can($me, 'sos.view')) {
+            $sos = (int) \App\Models\SosAlert::query()->visibleTo($me)->whereIn('status', \App\Models\SosAlert::OPEN_STATES)
+                ->where('user_id', '!=', $me->id)->where('raised_at', '>', now()->subDay())->count();
+        }
+
+        return ['chats' => $chats, 'calls' => $calls, 'requests' => $requests, 'sos' => $sos];
     }
 }

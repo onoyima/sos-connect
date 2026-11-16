@@ -7,11 +7,16 @@ import { AuthProvider, useAuth } from '@/auth/AuthContext';
 import { CallProvider } from '@/calls/CallContext';
 import { CallOverlay } from '@/ui/CallOverlay';
 import { BroadcastPopup } from '@/broadcasts/Popup';
+import { SosAlarm } from '@/ui/SosAlarm';
 import { Button, Icon } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
 
 Notifications.setNotificationHandler({
-    handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true }),
+    // With the app open, an SOS shows the full-screen alarm (with its own siren) instead of a second sound.
+    handleNotification: async (n) => {
+        const sos = (n.request.content.data as { type?: string })?.type === 'sos';
+        return { shouldShowBanner: !sos, shouldShowList: true, shouldPlaySound: !sos, shouldSetBadge: true };
+    },
 });
 
 /** Opening screen, like WhatsApp's: brand mark in the middle, a quiet line at the bottom. */
@@ -87,6 +92,7 @@ function Gate() {
                 <Stack.Screen name="face-capture" options={{ animation: 'slide_from_bottom' }} />
             </Stack>
             <CallOverlay />
+            <SosAlarm />
             <BroadcastPopup ready={status === 'ready' && !me?.needs_policy_acceptance} />
         </>
     );

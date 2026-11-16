@@ -1,5 +1,9 @@
 import { existsSync } from 'node:fs';
 import type { ExpoConfig } from 'expo/config';
+import { ensureSiren } from './scripts/siren';
+
+// The SOS alarm sound is generated here (not stored), so it is always intact.
+ensureSiren();
 
 // Push notifications on Android need Firebase: put google-services.json next to this file (see README).
 const firebase = existsSync('./google-services.json') ? { googleServicesFile: './google-services.json' } : {};
@@ -23,7 +27,6 @@ const config: ExpoConfig = {
             NSMicrophoneUsageDescription: 'For voice notes and calls.',
             NSCameraUsageDescription: 'For video calls, photos you choose to send, and scanning the code to link a web browser.',
             UIBackgroundModes: ['remote-notification', 'voip'],
-            ITSAppUsesNonExemptEncryption: false,
         },
     },
     android: {
@@ -41,7 +44,8 @@ const config: ExpoConfig = {
         'expo-sqlite',
         'expo-secure-store',
         ['expo-location', { locationWhenInUsePermission: 'Your location is attached to SOS alerts only when you press SOS.' }],
-        ['expo-notifications', { defaultChannel: 'messages' }],
+        // siren.wav is the SOS alarm sound (the 'sos-siren' notification channel and the in-app alarm).
+        ['expo-notifications', { defaultChannel: 'messages', sounds: ['./assets/sounds/siren.wav'] }],
         ['expo-image-picker', { photosPermission: 'Choose photos to send.', cameraPermission: 'Take photos to send.' }],
         ['expo-audio', { microphonePermission: 'Record voice notes to send in chats.' }],
         '@config-plugins/react-native-webrtc',
@@ -57,7 +61,7 @@ const config: ExpoConfig = {
         },
         // From `php artisan sos:platform-keys` (public half only). Lets phones verify each other offline.
         platformPublicKey: process.env.EXPO_PUBLIC_PLATFORM_PUBLIC_KEY ?? '',
-        eas: { projectId: 'a1c212fa-a9cc-47af-a870-2e2516753b57' },
+        eas: { projectId: process.env.EAS_PROJECT_ID },
     },
 };
 

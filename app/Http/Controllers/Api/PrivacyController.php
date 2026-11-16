@@ -47,25 +47,23 @@ class PrivacyController extends Controller
     }
 
     /**
-     * Removes the member's SOS Connect account. Their institution record is untouched (we never had it).
-     * SOS alerts are kept, de-identified, for the incident-record period because the institution may need
-     * them for safety investigations (legal obligation / vital interests); everything else is removed.
+     * "Delete my account": the account is closed (status "deleted"), not erased. The person is signed out everywhere
+     * and hidden from others; the institution keeps the record and can trace it (Admin > Deleted accounts). An erasure
+     * request goes to the institution's data protection officer, who decides what may be erased.
      */
     public function destroyAccount(Request $request): JsonResponse
     {
         $me = $request->user();
-        $request->validate(['confirm' => 'required|in:DELETE']);
+        $data = $request->validate(['confirm' => 'required|in:DELETE', 'reason' => 'nullable|string|max:1000']);
+        abort_if($me->is_platform_admin && ! $me->institution_id, 422, 'Platform accounts are closed by another platform owner.');
 
-        AuditLog::record('privacy.account_deleted', $me);
-        $me->tokens()->delete();
-        $me->devices()->delete();
-        StatusUpdate::where('user_id', $me->id)->delete();
-        Message::where('sender_id', $me->id)->get()->each(fn ($m) => $m->forceFill(['body' => null, 'meta' => null])->save());
-        Message::where('sender_id', $me->id)->delete();
-        $me->forceFill(['name' => 'Deleted member', 'email' => null, 'phone' => null, 'identifier' => null,
-            'external_id' => 'deleted-'.$me->id, 'status' => 'left', 'password' => null])->save();
-        $me->conversations()->detach();
+        \App\Services\Accounts\AccountClosure::close($me, \App\Services\Auth\DeviceSessions::fromPhone($request) ? 'app' : 'web', $data['reason'] ?? null, null, $request);
+        if ($request->hasSession()) {
+            \Illuminate\Support\Facades\Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'message' => 'Your account is closed and you have been signed out. Your institution keeps a record of it; ask your school if you want it restored.']);
     }
 }

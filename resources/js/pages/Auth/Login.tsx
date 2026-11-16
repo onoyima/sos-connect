@@ -10,6 +10,7 @@ type Mode = 'phone' | 'password';
 const NOTICES: Record<string, string> = {
     replaced: 'Your account was opened on another browser, so it was signed out here. An account can be open on one browser and one phone at a time.',
     phone: 'This browser was signed out from your phone.',
+    deleted: 'Your account is closed and you have been signed out. Your institution keeps a record of it; if you want it back, ask your school\'s ICT unit to restore it.',
     expired: 'Your session ended, so you were signed out to keep your account safe. Please sign in again.',
 };
 
@@ -20,7 +21,7 @@ const NOTICES: Record<string, string> = {
  */
 export default function Login() {
     const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const notice = ['replaced', 'phone', 'expired'].find((k) => params.has(k));
+    const notice = ['replaced', 'phone', 'deleted', 'expired'].find((k) => params.has(k));
     const [mode, setModeState] = useState<Mode>(() => {
         try { return (localStorage.getItem('sos.loginMode') as Mode) || 'phone'; } catch { return 'phone'; }
     });

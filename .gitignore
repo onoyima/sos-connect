@@ -20,3 +20,5 @@
 /connector/config.php
 /connector/storage
 /public/mediapipe/face_landmarker.task
+# Generated at build time by mobile/scripts/siren.ts (from app.config.ts)
+/mobile/assets/sounds/siren.wav

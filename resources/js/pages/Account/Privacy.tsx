@@ -4,7 +4,6 @@ import { Download, FilePen, Trash2 } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { Modal, PageBody, PageHeader } from '@/components/ui';
 import { api } from '@/lib/api';
-import { signOut } from '@/lib/session';
 
 export default function Privacy({ policyVersion }: { policyVersion: string }) {
     const [msg, setMsg] = useState<string | null>(null);
@@ -19,9 +18,10 @@ export default function Privacy({ policyVersion }: { policyVersion: string }) {
         setMsg(`Request received. You'll get an answer by ${new Date(r.due_at).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}.`);
         setDetails('');
     };
+    const [reason, setReason] = useState('');
     const deleteAccount = async () => {
-        await api('/privacy/account', { method: 'DELETE', body: { confirm: 'DELETE' } });
-        signOut();
+        await api('/privacy/account', { method: 'DELETE', body: { confirm: 'DELETE', reason: reason.trim() || null } });
+        window.location.replace('/login?deleted=1'); // already signed out by the server
     };
 
     return (
@@ -67,7 +67,7 @@ export default function Privacy({ policyVersion }: { policyVersion: string }) {
 
                     <section className="rounded-2xl border border-sos/30 bg-white p-5">
                         <h2 className="flex items-center gap-2 text-lg font-bold text-sos"><Trash2 size={20} />Delete my account</h2>
-                        <p className="mt-2 text-[15px] leading-7">This removes your profile, messages, status updates and devices from SOS Connect. Your record at your institution isn't affected. SOS alerts are kept without your name for the incident-record period, so safety incidents can still be investigated.</p>
+                        <p className="mt-2 text-[15px] leading-7">Your account is closed: you're signed out everywhere, other people can no longer find or message you, and you can't sign in again. To protect everyone, your institution keeps a record of the account and what was sent from it, and can restore it if you ask. Your request to erase your data goes to your institution's data protection officer, who answers within 30 days.</p>
                         <button className="btn-danger mt-4" onClick={() => { setTyped(''); setConfirmDelete(true); }}>Delete my account</button>
                     </section>
                 </div>
@@ -75,8 +75,11 @@ export default function Privacy({ policyVersion }: { policyVersion: string }) {
 
             {confirmDelete && (
                 <Modal title="Delete your account?" onClose={() => setConfirmDelete(false)}>
-                    <p className="text-[15px]">This can't be undone. Type <strong>DELETE</strong> to confirm.</p>
-                    <input className="input mt-3" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus aria-label="Type DELETE to confirm" />
+                    <p className="text-[15px]">You'll be signed out and can't sign in again unless your school restores the account.</p>
+                    <label className="label mt-3" htmlFor="del-reason">Why are you leaving? (optional)</label>
+                    <textarea id="del-reason" className="input" rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} />
+                    <p className="mt-3 text-[15px]">Type <strong>DELETE</strong> to confirm.</p>
+                    <input className="input mt-2" value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus aria-label="Type DELETE to confirm" />
                     <div className="mt-4 flex justify-end gap-2">
                         <button className="btn-ghost" onClick={() => setConfirmDelete(false)}>Keep my account</button>
                         <button className="btn-danger" disabled={typed !== 'DELETE'} onClick={deleteAccount}>Delete account</button>

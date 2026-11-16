@@ -33,9 +33,10 @@ class PushNotifier
                 'title' => $title,
                 'body' => mb_substr($body, 0, 140),
                 'data' => $data,
-                'sound' => 'default',
+                // SOS: the siren sound, on the phone's alarm channel (rings through Do Not Disturb on Android).
+                'sound' => $urgent ? 'siren.wav' : 'default',
                 'priority' => 'high',
-                'channelId' => $urgent ? 'sos' : 'messages',
+                'channelId' => $urgent ? 'sos-siren' : 'messages',
                 'ttl' => $urgent ? 3600 : 86400,
             ], $chunk);
 

@@ -1,4 +1,8 @@
 * text=auto eol=lf
+*.wav binary
+*.png binary
+*.jpg binary
+*.task binary
 
 *.blade.php diff=html
 *.css diff=css

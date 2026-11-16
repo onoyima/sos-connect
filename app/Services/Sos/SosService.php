@@ -3,6 +3,7 @@
 namespace App\Services\Sos;
 
 use App\Events\SosChanged;
+use App\Events\UserSignal;
 use App\Jobs\SendPush;
 use App\Models\AuditLog;
 use App\Models\SosAlert;
@@ -55,10 +56,17 @@ class SosService
         // Push to responders right after the response is sent; SOS skips the normal queue.
         // Everyone allowed to see SOS alerts from this person's area (their department, faculty or unit,
         // or the whole institution), e.g. campus security, the clinic, their hall warden.
-        $responders = array_values(array_diff(Access::holders($user->institution_id, 'sos.view', $user->unitIds()), [$user->id]));
+        $responders = self::respondersFor($alert);
         $place = $alert->location_label ?: ($alert->lat ? 'location attached' : 'no location');
         SendPush::dispatchAfterResponse($responders, 'SOS: '.ucfirst($alert->category), "{$user->name} needs help ({$place}).",
             ['type' => 'sos', 'alert_id' => $alert->id], true);
+
+        // The alarm: each responder's open pages and apps sound a siren and take over the screen straight away
+        // (kept for a few minutes too, so it still arrives when live updates are down).
+        $payload = self::alarm($alert);
+        foreach ($responders as $id) {
+            UserSignal::dispatch((int) $id, 'sos.alarm', $payload);
+        }
 
         return $alert;
     }
@@ -90,6 +98,14 @@ class SosService
         AuditLog::record('sos.'.$action, $alert, [], $alert->institution_id);
         SosChanged::dispatch($alert->fresh(), 'updated');
 
+        // Everyone else's alarm for this alert stops ringing once someone is on it (and closes when it's over).
+        if ($action !== 'note') {
+            $update = ['id' => $alert->id, 'status' => $alert->status, 'action' => $action, 'by' => $responder->name, 'by_id' => $responder->id];
+            foreach (array_diff(self::respondersFor($alert), [$responder->id]) as $id) {
+                UserSignal::dispatch((int) $id, 'sos.update', $update);
+            }
+        }
+
         if (! $isOwner && in_array($action, ['acknowledged', 'on_my_way', 'arrived'], true)) {
             $text = ['acknowledged' => 'Help has seen your alert.', 'on_my_way' => 'A responder is on the way.', 'arrived' => 'A responder has arrived.'][$action];
             SendPush::dispatchAfterResponse([$alert->user_id], 'SOS update', $text, ['type' => 'sos', 'alert_id' => $alert->id], true);
@@ -106,14 +122,40 @@ class SosService
         SosAlert::where('status', 'open')->whereNull('escalated_at')->where('raised_at', '<', $cutoff)
             ->each(function (SosAlert $alert) use (&$count) {
                 $alert->update(['escalated_at' => now()]);
-                $ids = Access::holders($alert->institution_id, 'sos.view'); // people who see every alert in the institution
+                $ids = array_values(array_diff(Access::holders($alert->institution_id, 'sos.view'), [$alert->user_id])); // people who see every alert
                 SendPush::dispatch($ids, 'SOS not yet answered', 'An SOS alert has had no response for over 2 minutes.',
                     ['type' => 'sos', 'alert_id' => $alert->id], true);
                 SosChanged::dispatch($alert, 'updated');
+                $payload = self::alarm($alert) + ['escalated' => true];
+                foreach (array_unique(array_merge($ids, self::respondersFor($alert))) as $id) {
+                    UserSignal::dispatch((int) $id, 'sos.alarm', $payload); // sound again, louder message
+                }
                 $count++;
             });
 
         return $count;
+    }
+
+    /** Who should be alarmed: everyone allowed to see SOS alerts from this person's area (never the person themself). */
+    public static function respondersFor(SosAlert $alert): array
+    {
+        $raiser = $alert->loadMissing('user')->user;
+
+        return array_values(array_diff(Access::holders($alert->institution_id, 'sos.view', $raiser?->unitIds() ?? []), [$alert->user_id]));
+    }
+
+    /** What the alarm screen shows. */
+    public static function alarm(SosAlert $alert): array
+    {
+        $alert->loadMissing('user.department');
+        $u = $alert->user;
+
+        return [
+            'id' => $alert->id, 'category' => $alert->category, 'message' => $alert->message ? mb_substr($alert->message, 0, 200) : null,
+            'status' => $alert->status, 'raised_at' => $alert->raised_at?->toIso8601String(),
+            'location_label' => $alert->location_label, 'lat' => $alert->lat, 'lng' => $alert->lng, 'accuracy_m' => $alert->accuracy_m, 'via' => $alert->via,
+            'user' => ['name' => $u?->name, 'identifier' => $u?->identifier, 'phone' => $u?->phone, 'department' => $u?->department?->name, 'residence' => $u?->residence],
+        ];
     }
 
     private function maybeImproveLocation(SosAlert $alert, array $data): void

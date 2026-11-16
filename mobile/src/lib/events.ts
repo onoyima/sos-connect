@@ -21,7 +21,10 @@ export type AppEvents = {
     /** A chat request arrived, was accepted, or was declined/cancelled. */
     chatRequest: { kind: 'received' | 'accepted' | 'declined' | 'updated'; data: any };
     /** Red counts from the server: missed calls and chat requests (unread chats are counted on the phone). */
-    badges: { chats: number; calls: number; requests: number };
+    badges: { chats: number; calls: number; requests: number; sos?: number };
+    /** A new SOS alert for me to respond to (rings the alarm), or someone else responded / it ended. */
+    sosAlarm: any;
+    sosUpdate: { id: number; status: string; action: string; by: string };
     /** Pop-ups or marquee lines from the institution changed. */
     broadcasts: void;
 };

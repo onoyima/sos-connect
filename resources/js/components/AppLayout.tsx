@@ -11,6 +11,7 @@ import { Broadcasts } from './Broadcasts';
 import { CallManager } from './CallManager';
 import { PolicyGate } from './PolicyGate';
 import { SosButton } from './SosButton';
+import { SosAlarm } from './SosAlarm';
 import { PlatformChat } from './PlatformChat';
 import { Avatar, memberLabel } from './ui';
 import { BrandMark } from './AuthShell';
@@ -29,6 +30,7 @@ const MAIN: NavItem[] = [
 /** Admin pages share one rail entry; tabs inside the page switch between them. Each shows only with its permission. */
 export const ADMIN_TABS: NavItem[] = [
     { href: '/admin/members', label: 'Members', icon: Settings, permission: 'members.view' },
+    { href: '/admin/deleted-accounts', label: 'Deleted accounts', icon: Settings, permission: 'members.view' },
     { href: '/admin/roles', label: 'Roles', icon: Settings, permission: 'roles.view' },
     { href: '/admin/groups', label: 'Groups', icon: Settings, permission: 'groups.view' },
     { href: '/admin/structure', label: 'Faculties and units', icon: Settings, permission: 'units.view' },
@@ -65,7 +67,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
     // "Remind me later" hides the face capture reminder until the next time the site is opened.
     const [faceLater, setFaceLater] = useState(() => { try { return sessionStorage.getItem('sos.faceLater') === '1'; } catch { return false; } });
     const [badges, setBadges] = useState<Badges>({ chats: 0, calls: 0, requests: 0 });
-    const countFor = (href: string) => (href === '/chats' ? badges.chats + badges.requests : href === '/calls' ? badges.calls : 0);
+    const countFor = (href: string) => (href === '/chats' ? badges.chats + badges.requests : href === '/calls' ? badges.calls : href === '/sos' ? badges.sos ?? 0 : 0);
     const has = (p?: string | string[]) => !p || (Array.isArray(p) ? p : [p]).some((x) => !!auth?.permissions.includes(x));
     const on = (m?: string | string[]) => !m || (Array.isArray(m) ? m : [m]).some((x) => modules?.[x] !== false);
     const can = (p?: string | string[]) => has(p);
@@ -123,7 +125,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
     // Red counts: chats with unread messages (plus chat requests) and missed calls, also in the browser tab title.
     useEffect(() => onBadges(setBadges), []);
     useEffect(() => {
-        const total = badges.chats + badges.calls + badges.requests;
+        const total = badges.chats + badges.calls + badges.requests + (badges.sos ?? 0);
         const base = document.title.replace(/^\(\d+\) /, '');
         document.title = total > 0 ? `(${total}) ${base}` : base;
     }, [badges, url]);
@@ -173,7 +175,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
             {!hideMobileNav && (
                 <header className="flex shrink-0 items-center gap-2 bg-grove px-2 pt-[calc(env(safe-area-inset-top)+8px)] pb-2 text-white md:hidden">
                     <button onClick={() => setDrawer(true)} className="inline-flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10" aria-label="Open menu" aria-expanded={drawer}>
-                        <span className="relative"><Menu size={22} />{badges.chats + badges.calls + badges.requests > 0 && <span className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-sos ring-2 ring-grove" />}</span>
+                        <span className="relative"><Menu size={22} />{badges.chats + badges.calls + badges.requests + (badges.sos ?? 0) > 0 && <span className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-sos ring-2 ring-grove" />}</span>
                     </button>
                     <div className="min-w-0 flex-1">
                         <div className="truncate text-[15px] font-semibold">{title}</div>
@@ -197,6 +199,13 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
             <main className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {modules?.broadcasts !== false && auth && <Broadcasts />}
                 {auth?.billing && <BillingBanner b={auth.billing} />}
+                {(badges.sos ?? 0) > 0 && !isActive('/sos') && (
+                    <Link href="/sos" className="flex items-center gap-2 bg-sos px-4 py-2 text-sm font-semibold text-white" role="status">
+                        <Siren size={16} className="shrink-0 animate-pulse" />
+                        <span className="min-w-0 flex-1">{badges.sos === 1 ? '1 SOS alert is open' : `${badges.sos} SOS alerts are open`}</span>
+                        <span className="shrink-0 underline">View</span>
+                    </Link>
+                )}
                 {!online && (
                     <div className="flex items-start gap-2 bg-amber/20 px-4 py-2.5 text-sm text-ink">
                         <WifiOff size={18} className="mt-0.5 shrink-0 text-[#8a5a12]" />
@@ -254,6 +263,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
 
             {auth?.user.needs_policy_acceptance && <PolicyGate />}
             {auth && <CallManager />}
+            {auth?.permissions.includes('sos.view') && <SosAlarm />}
             {auth?.platform_chat && <PlatformChat lifted={url.startsWith('/chats')} />}
         </div>
     );

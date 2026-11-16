@@ -21,6 +21,8 @@ use RuntimeException;
  */
 class InstitutionLogin
 {
+    public const DELETED = "This account was deleted, so it can't be used. If you want it back, ask your school's ICT unit to restore it.";
+
     /** Wrong details, unknown account, or a school that isn't ready: all look the same from outside. */
     public const INVALID = 'invalid';
 
@@ -42,7 +44,13 @@ class InstitutionLogin
         $local = User::inInstitution($institution->id)->where('auth_source', 'local')
             ->where('email', mb_strtolower($identifier))->first();
         if ($local) {
-            if ($local->status !== 'active' || ! Hash::check($password, (string) $local->password)) {
+            if (! Hash::check($password, (string) $local->password)) {
+                return ['ok' => false, 'error' => self::INVALID];
+            }
+            if ($local->status === 'deleted') {
+                return ['ok' => false, 'error' => self::DELETED];
+            }
+            if ($local->status !== 'active') {
                 return ['ok' => false, 'error' => self::INVALID];
             }
             if ($institution->isActive()) {
@@ -96,6 +104,11 @@ class InstitutionLogin
             AuditLog::record('billing.member_limit_reached', null, ['member' => $profile->externalId], $institution->id);
 
             return ['ok' => false, 'error' => "Your school has reached the number of members its SOS Connect plan allows, so new accounts can't be opened yet. Please tell your school's ICT unit."];
+        }
+
+        // A closed ("deleted") account stays closed until the institution restores it.
+        if (User::inInstitution($institution->id)->where('external_id', $profile->externalId)->where('status', 'deleted')->exists()) {
+            return ['ok' => false, 'error' => self::DELETED];
         }
 
         $user = $this->upsertMember($institution, $profile);
@@ -154,7 +167,7 @@ class InstitutionLogin
                 'alumni_year' => $alumni ? $p->alumniYear : null,
                 'alumni_year_kind' => $alumni ? $p->alumniYearKind : null,
                 'is_minor' => $p->isMinor,
-                'status' => $user->status === 'suspended' ? 'suspended' : 'active',
+                'status' => in_array($user->status, ['suspended', 'deleted'], true) ? $user->status : 'active',
                 'last_seen_at' => now(),
             ])->save();
 

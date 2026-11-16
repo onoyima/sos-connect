@@ -17,7 +17,7 @@ let pushOk = true;
 let cursor = -1;
 let stamps: Record<string, string> | null = null;
 let fast = false;
-let latestBadges = { chats: 0, calls: 0, requests: 0 };
+let latestBadges: { chats: number; calls: number; requests: number; sos?: number } = { chats: 0, calls: 0, requests: 0, sos: 0 };
 let badgeTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const currentBadges = () => latestBadges;
@@ -87,7 +87,8 @@ export async function connectRealtime(onChange: () => void) {
 }
 
 const SIGNALS = ['call.incoming', 'call.signal', 'call.state', 'groupcall.ring', 'groupcall.joined', 'groupcall.left', 'groupcall.signal',
-    'status.tagged', 'status.reacted', 'status.commented', 'chat_request.received', 'chat_request.accepted', 'chat_request.declined', 'chat_request.updated', 'session.replaced'] as const;
+    'status.tagged', 'status.reacted', 'status.commented', 'chat_request.received', 'chat_request.accepted', 'chat_request.declined', 'chat_request.updated', 'session.replaced',
+    'sos.alarm', 'sos.update'] as const;
 
 /** One person's signal, from the websocket or the regular check; each is handled once. */
 function deliver(kind: string, e: any) {
@@ -96,7 +97,9 @@ function deliver(kind: string, e: any) {
         seen.push(e._sig);
         if (seen.length > 300) seen.splice(0, 100);
     }
-    if (kind.startsWith('call.') || kind.startsWith('chat_request.')) refreshBadges();
+    if (kind.startsWith('call.') || kind.startsWith('chat_request.') || kind.startsWith('sos.')) refreshBadges();
+    if (kind === 'sos.alarm') { emit('sosAlarm', e); emit('sos', undefined); return; }
+    if (kind === 'sos.update') { emit('sosUpdate', e); emit('sos', undefined); return; }
     if (kind === 'call.incoming') emit('callSignal', { from: e.caller?.id ?? 0, data: { kind: 'incoming', ...e }, via: 'online' });
     else if (kind === 'call.signal') emit('callSignal', { from: 0, data: { kind: 'signal', ...e }, via: 'online' });
     else if (kind === 'call.state') emit('callSignal', { from: 0, data: { kind: 'state', ...e }, via: 'online' });
