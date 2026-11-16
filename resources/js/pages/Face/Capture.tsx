@@ -34,7 +34,13 @@ function xsrf(): string {
 async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(url, { credentials: 'same-origin', ...init, headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-XSRF-TOKEN': xsrf(), ...(init.headers ?? {}) } });
     const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((data as { message?: string } | null)?.message ?? `Something went wrong (${res.status}).`);
+    if (!res.ok) {
+        const msg = (data as { message?: string } | null)?.message;
+        // 413 comes from the web server (nginx/Apache) before the app sees the photo.
+        throw new Error(res.status === 413
+            ? 'The server refused the photo because it is too large. Ask your administrator to allow bigger uploads (nginx: client_max_body_size 64m; PHP: upload_max_filesize and post_max_size 64M).'
+            : msg ?? `The server answered with an error (${res.status}).`);
+    }
     return data as T;
 }
 
@@ -123,6 +129,7 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
         let prevNose: { x: number; y: number } | null = null;
         let uploads: Promise<unknown> = Promise.resolve();
         const failed = new Set<Pose>();
+        let lastError: string | null = null;
         const have = new Set<Pose>();
         let lastHint = '';
 
@@ -163,7 +170,11 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
                         failed.delete(pose);
                         setShots((s) => s.map((x) => (x.pose === pose ? { ...x, status: 'saved', quality: r.quality } : x)));
                         return;
-                    } catch { await new Promise((ok) => setTimeout(ok, 1200 * (attempt + 1))); }
+                    } catch (e) {
+                        lastError = (e as Error).message;
+                        if (/too large|being updated|not allowed|switched off/i.test(lastError)) break; // trying again won't help
+                        await new Promise((ok) => setTimeout(ok, 1200 * (attempt + 1)));
+                    }
                 }
                 failed.add(pose);
                 setShots((s) => s.map((x) => (x.pose === pose ? { ...x, status: 'failed' } : x)));
@@ -179,7 +190,7 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
             speak('Thank you. Saving your photos.');
             await uploads;
             if (failed.size) {
-                setError('Some photos could not be saved (check your internet). Please start again.');
+                setError(`Some photos could not be saved. ${lastError ?? 'Check your internet connection.'} Please start again.`);
                 setPhase('error');
                 return;
             }

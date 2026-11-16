@@ -47,6 +47,20 @@ REVERB_PUBLIC_SCHEME=https
 
 The website's own address is always allowed to call its API with the signed-in session, so a wrong or missing `APP_URL` / `SANCTUM_STATEFUL_DOMAINS` no longer causes "401" errors and a page that keeps reloading. Still set `APP_URL` correctly: links in e-mails and QR codes use it.
 
+## Check the server
+
+After each deploy (the workflow does it too), run:
+
+```
+php artisan sos:doctor
+```
+
+It checks the database updates, file permissions and upload limits, live updates, the queue worker, the call relay and face capture, and says how to fix anything wrong.
+
+## Calls
+
+Calls between different networks need a relay (TURN) server: see `docs/calls.md`.
+
 ## Long-running processes (Supervisor or systemd)
 
 ```

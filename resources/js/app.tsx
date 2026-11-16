@@ -3,6 +3,7 @@ import { applyFavicon } from '@/lib/favicon';
 import type { Branding } from '@/types';
 import { guardHistory, sessionEnded } from '@/lib/session';
 import { createRoot } from 'react-dom/client';
+import { stackTablesOnPhones } from '@/lib/tables';
 
 createInertiaApp({
     title: (title) => (title ? `${title} · SOS Connect` : 'SOS Connect'),
@@ -33,3 +34,4 @@ router.on('invalid', (event) => {
     }
 });
 guardHistory();
+stackTablesOnPhones();

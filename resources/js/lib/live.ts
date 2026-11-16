@@ -126,9 +126,10 @@ function watchConversations(ids: number[]) {
     }
 }
 
+let pushOk = true;
 const interval = () => {
-    if (connected) return 30_000;
-    if (fast > 0) return 1_000;          // in a call: setup messages must arrive quickly
+    if (fast > 0) return 1_000;          // in a call: setup messages must arrive quickly, live connection or not
+    if (connected && pushOk) return 30_000;
     return document.hidden ? 8_000 : 3_000;
 };
 
@@ -139,7 +140,8 @@ function schedule(ms: number) {
 
 async function pulse() {
     try {
-        const r = await api<{ cursor: number; signals: { id: number; kind: string; data: any }[]; stamps: Record<Topic, string>; badges: Badges; conversation_ids: number[] }>(`/pulse?after=${cursor}`);
+        const r = await api<{ cursor: number; signals: { id: number; kind: string; data: any }[]; stamps: Record<Topic, string>; badges: Badges; conversation_ids: number[]; push_ok?: boolean }>(`/pulse?after=${cursor}`);
+        pushOk = r.push_ok !== false;
         if (cursor >= 0) r.signals.forEach((s) => deliver(s.kind, { ...s.data, _sig: s.id }));
         cursor = r.cursor;
         if (stamps) {
@@ -200,10 +202,10 @@ export function onBadges(fn: (b: Badges) => void): () => void {
     return () => { badgeHandlers.delete(fn); };
 }
 
-/** Check more often while a call is being set up or running (only matters without the websocket). */
+/** Check every second while a call is being set up or running, so call signals never wait for the 30-second check. */
 export function liveFast(on: boolean) {
     fast = Math.max(0, fast + (on ? 1 : -1));
-    if (on && !connected) schedule(0);
+    if (on) schedule(0); // start checking every second now (the live connection may look open while the server can't push)
 }
 
 export const isLive = () => connected;

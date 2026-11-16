@@ -8,6 +8,7 @@ import { chatTime } from '@/lib/format';
 import { MeshManager } from '@/mesh/MeshManager';
 import { T } from '@/mesh/protocol';
 import { fetchStatuses, type StatusGroup } from '@/status/status';
+import { StatusThumb } from '@/status/StatusThumb';
 import { SyncEngine } from '@/sync/SyncEngine';
 import { Avatar, EmptyState, Icon, IconButton, TopBar } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
@@ -19,7 +20,7 @@ function Ring({ g, onPress, label }: { g: StatusGroup | null; onPress: () => voi
     return (
         <Pressable onPress={onPress} style={{ alignItems: 'center', width: 74, gap: 4 }}>
             <View style={{ padding: 2.5, borderRadius: 34, borderWidth: 2.5, borderColor: g ? (g.unseen ? colors.leaf : colors.line) : 'transparent' }}>
-                <Avatar name={g?.name ?? label} size={56} />
+                {g?.items.length ? <StatusThumb s={g.items[g.items.length - 1]} /> : <Avatar name={g?.name ?? label} size={56} />}
             </View>
             <Text style={{ fontSize: 12, color: colors.ink }} numberOfLines={1}>{label}</Text>
         </Pressable>
@@ -73,7 +74,7 @@ export default function Updates() {
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, gap: 4 }}>
                             <Pressable onPress={() => (mine ? router.push(`/status/${me!.id}`) : can('status.post') && router.push('/status/new'))} style={{ alignItems: 'center', width: 74, gap: 4 }}>
                                 <View>
-                                    <View style={{ padding: 2.5, borderRadius: 34, borderWidth: 2.5, borderColor: mine ? colors.line : 'transparent' }}><Avatar name={me?.name ?? 'Me'} size={56} /></View>
+                                    <View style={{ padding: 2.5, borderRadius: 34, borderWidth: 2.5, borderColor: mine ? colors.line : 'transparent' }}>{mine?.items.length ? <StatusThumb s={mine.items[mine.items.length - 1]} /> : <Avatar name={me?.name ?? 'Me'} size={56} />}</View>
                                     {!mine && can('status.post') && <View style={{ position: 'absolute', right: 0, bottom: 0, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.leaf, borderWidth: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' }}><Icon name="add" size={14} color="#fff" /></View>}
                                 </View>
                                 <Text style={{ fontSize: 12, color: colors.ink }}>My status</Text>

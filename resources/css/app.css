@@ -60,6 +60,13 @@
     /* Nothing may push the page sideways, and dragging past the edge must not bounce the whole page. */
     html, body { overflow-x: clip; overscroll-behavior: none; }
     html { -webkit-text-size-adjust: 100%; }
+    /* Older iPhones (before iOS 16) don't know "clip": fall back to hidden so nothing scrolls sideways there either. */
+    @supports not (overflow-x: clip) { html, body { overflow-x: hidden; } }
+    /* Phones zoom the whole page into a text box whose text is smaller than 16px, and the zoomed page then slides
+       sideways ("shakes"). Text boxes use 16px on phone-size screens so that never happens. */
+    @media (max-width: 767px) {
+        input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']), select, textarea { font-size: 16px !important; }
+    }
     body { @apply bg-mist font-sans text-ink; -webkit-font-smoothing: antialiased; overflow-wrap: anywhere; -webkit-tap-highlight-color: transparent; }
     /* Media, form controls and grid/flex children shrink to the screen instead of overflowing it. */
     img, svg, video, canvas, iframe { max-width: 100%; }
@@ -153,3 +160,13 @@
 .doc th { background: var(--color-mist); font-weight: 600; }
 .doc hr { border: 0; border-top: 1px solid var(--color-line); margin: 1.5rem 0; }
 .doc blockquote { border-left: 3px solid var(--color-leaf); padding-left: 0.8rem; color: var(--color-muted); }
+
+/* Phones: wide tables in help, design and policy pages become stacked cards (labels come from lib/tables.ts). */
+@media (max-width: 640px) {
+    :is(.doc, .prose-legal) table[data-stack='1'] { display: block; overflow: visible; border: 0; }
+    :is(.doc, .prose-legal) table[data-stack='1'] :is(thead, tr[data-head]) { display: none; }
+    :is(.doc, .prose-legal) table[data-stack='1'] tbody { display: block; }
+    :is(.doc, .prose-legal) table[data-stack='1'] tr { display: block; margin: 0 0 0.75rem; border: 1px solid var(--color-line); border-radius: 12px; padding: 0.4rem 0.75rem; background: #fff; }
+    :is(.doc, .prose-legal) table[data-stack='1'] :is(td, th) { display: block; border: 0; padding: 0.3rem 0; min-width: 0; }
+    :is(.doc, .prose-legal) table[data-stack='1'] :is(td, th)[data-label]::before { content: attr(data-label); display: block; font-size: 12px; font-weight: 600; color: var(--color-muted); }
+}

@@ -45,6 +45,9 @@ class PulseController extends Controller
                     DB::table('status_reactions')->whereIn('status_update_id', DB::table('status_updates')->where('institution_id', $iid)->select('id'))->max('updated_at')]),
             ],
             'realtime' => Realtime::clientSettings(),
+            // False for a minute after the server failed to push through the live-update server: pages then keep
+            // checking every few seconds even though their own live connection looks open.
+            'push_ok' => ! \Illuminate\Support\Facades\Cache::has('rt:down-reported'),
             'badges' => \App\Support\Badges::for($me),
             // So the page can listen to each chat for instant updates.
             'conversation_ids' => DB::table('conversation_members')->where('user_id', $me->id)->pluck('conversation_id'),

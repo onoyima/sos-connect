@@ -38,13 +38,22 @@ class Realtime
     /** Keeps a copy of a signal for one person; returns its number. */
     public static function remember(int $userId, string $kind, array $payload): int
     {
-        $id = (int) Cache::increment('rt:seq');
         $key = "rt:u:{$userId}";
-        $list = array_values(array_filter(Cache::get($key, []), fn ($s) => $s['at'] > time() - self::KEEP_SECONDS));
-        $list[] = ['id' => $id, 'kind' => $kind, 'data' => $payload, 'at' => time()];
-        Cache::put($key, array_slice($list, -self::KEEP_MAX), self::KEEP_SECONDS);
+        // A call sends many signals at the same instant (network candidates). Without the lock, two requests
+        // read the same list and the second write drops the first signal, so a call could never connect.
+        $write = function () use ($key, $kind, $payload) {
+            $id = (int) Cache::increment('rt:seq');
+            $list = array_values(array_filter(Cache::get($key, []), fn ($s) => $s['at'] > time() - self::KEEP_SECONDS));
+            $list[] = ['id' => $id, 'kind' => $kind, 'data' => $payload, 'at' => time()];
+            Cache::put($key, array_slice($list, -self::KEEP_MAX), self::KEEP_SECONDS);
 
-        return $id;
+            return $id;
+        };
+        try {
+            return (int) Cache::lock("{$key}:lock", 5)->block(3, $write);
+        } catch (\Throwable) {
+            return (int) $write(); // the cache can't lock (or waited too long): still keep the signal
+        }
     }
 
     /** Signals for this person after the given number. A negative cursor only returns the current number. */
@@ -55,7 +64,10 @@ class Realtime
             return [$now, []];
         }
         $list = array_values(array_filter(Cache::get("rt:u:{$userId}", []), fn ($s) => $s['id'] > $cursor));
+        // Move the cursor only past what was actually handed over: a signal numbered just now but not yet saved
+        // (another request is still writing it) must not be skipped.
+        $next = $list ? max(array_column($list, 'id')) : $cursor;
 
-        return [$now, array_map(fn ($s) => ['id' => $s['id'], 'kind' => $s['kind'], 'data' => $s['data']], $list)];
+        return [$next, array_map(fn ($s) => ['id' => $s['id'], 'kind' => $s['kind'], 'data' => $s['data']], $list)];
     }
 }

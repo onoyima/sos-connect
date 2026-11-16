@@ -66,8 +66,15 @@ return [
     ],
 
     'calls' => [
+        // Calls between different networks (mobile data, another Wi-Fi) need a relay ("TURN") server. Either:
+        //  a) your own coturn with a shared secret (docs/calls.md): TURN_HOST + TURN_SECRET (+ TURN_TLS=true if 5349 has a certificate), or
+        //  b) a hosted TURN service with a fixed login: TURN_URLS (comma separated) + TURN_USERNAME + TURN_PASSWORD.
         'turn_host' => env('TURN_HOST'),
         'turn_secret' => env('TURN_SECRET'),
+        'turn_tls' => (bool) env('TURN_TLS', false),
+        'turn_urls' => env('TURN_URLS'),
+        'turn_username' => env('TURN_USERNAME'),
+        'turn_password' => env('TURN_PASSWORD'),
         'turn_ttl' => 3600,
         // Group calls connect every phone to every other one, so they stay small enough to work on campus Wi-Fi.
         'group_max' => (int) env('SOS_GROUP_CALL_MAX', 8),

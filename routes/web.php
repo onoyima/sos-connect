@@ -65,6 +65,7 @@ Route::middleware(['auth', 'member'])->group(function () {
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/settings', [AdminController::class, 'settings'])->middleware('can.do:settings.edit')->name('settings');
         Route::post('/settings', [AdminController::class, 'saveSettings'])->middleware('can.do:settings.edit')->name('settings.save');
+        Route::post('/settings/details', [AdminController::class, 'saveDetails'])->middleware('can.do:settings.edit')->name('settings.details');
         Route::post('/connector', [AdminController::class, 'saveConnector'])->middleware('can.do:connector.edit')->name('connector.save');
         Route::post('/sign-in', [AdminController::class, 'saveSignIn'])->middleware('can.do:connector.edit')->name('sign-in.save');
         Route::post('/connector/test', [AdminController::class, 'testConnector'])->middleware('can.do:connector.edit')->name('connector.test');

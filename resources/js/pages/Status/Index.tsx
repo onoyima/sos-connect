@@ -110,7 +110,7 @@ function Section({ title, groups, onOpen, meId }: { title: string; groups: { use
                     const mine = g.userId === meId;
                     return (
                         <button key={g.userId} onClick={() => onOpen(g.userId)} className="flex w-full items-center gap-3 border-b border-line/60 px-4 py-3 text-left last:border-0 hover:bg-mist">
-                            <Ring count={g.list.length} seen={!g.unseen || mine}><Avatar name={g.user.name} size={44} /></Ring>
+                            <Ring count={g.list.length} seen={!g.unseen || mine}><StatusThumb s={last} size={44} /></Ring>
                             <div className="min-w-0 flex-1">
                                 <div className="truncate font-semibold">{mine ? 'My status' : g.user.name}</div>
                                 <div className="truncate text-sm text-muted">
@@ -124,6 +124,25 @@ function Section({ title, groups, onOpen, meId }: { title: string; groups: { use
                 })}
             </div>
         </section>
+    );
+}
+
+/** A round preview of the newest update: the photo, GIF or first video frame, or the colour and text of a text update. */
+function StatusThumb({ s, size }: { s: Status; size: number }) {
+    const kind = s.media_type ?? (s.media_path ? 'image' : null);
+    const box = 'flex shrink-0 items-center justify-center overflow-hidden rounded-full';
+    if (s.media_path && (kind === 'image' || kind === 'gif')) {
+        return <img src={fileUrl(s.media_path)} alt="" loading="lazy" className={`${box} object-cover`} style={{ width: size, height: size }} />;
+    }
+    if (s.media_path && kind === 'video') {
+        // #t=0.1 makes browsers show the first frame without playing it.
+        return <video src={`${fileUrl(s.media_path)}#t=0.1`} muted playsInline preload="metadata" className={`${box} bg-ink object-cover`} style={{ width: size, height: size }} />;
+    }
+    return (
+        <span className={`${box} text-white`} style={{ width: size, height: size, background: s.background ?? COLOURS[0] }}>
+            {kind === 'audio' ? <Music size={size * 0.42} />
+                : <span className="line-clamp-2 px-1 text-center font-bold leading-tight break-words" style={{ fontSize: Math.max(8, size / 6) }}>{(s.body ?? '').slice(0, 24)}</span>}
+        </span>
     );
 }
 

@@ -14,7 +14,8 @@ class CallLog extends Model
 
     protected function casts(): array
     {
-        return ['started_at' => 'datetime', 'answered_at' => 'datetime', 'ended_at' => 'datetime'];
+        // ids as numbers on every database, so "is this me?" checks (===) work on MySQL set-ups that return text
+        return ['caller_id' => 'integer', 'callee_id' => 'integer', 'started_at' => 'datetime', 'answered_at' => 'datetime', 'ended_at' => 'datetime'];
     }
 
     public function caller(): BelongsTo

@@ -13,6 +13,7 @@ let echo: Echo<'reverb'> | null = null;
 let connected = false;
 let onChangeCb: (() => void) | null = null;
 let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+let pushOk = true;
 let cursor = -1;
 let stamps: Record<string, string> | null = null;
 let fast = false;
@@ -122,7 +123,7 @@ function startPulse() {
 
 export function realtimeFast(on: boolean) {
     fast = on;
-    if (on && !connected) schedule(0);
+    if (on) schedule(0); // every second from now on, live connection or not
 }
 
 function schedule(ms: number) {
@@ -144,8 +145,10 @@ async function pulse() {
         }
         stamps = r.stamps;
         if ((r as any).badges) { latestBadges = (r as any).badges; emit('badges', latestBadges); }
+        pushOk = (r as any).push_ok !== false;
     } catch { /* offline or signed out; tried again below */ }
-    schedule(connected ? 30_000 : fast ? 1_000 : active ? 4_000 : 30_000);
+    // In a call, check every second even when the live connection looks open: the server may be unable to push.
+    schedule(fast ? 1_000 : connected && pushOk ? 30_000 : active ? 4_000 : 30_000);
 }
 
 export function subscribeConversation(conversationId: number, onChange: () => void) {

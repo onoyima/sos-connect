@@ -12,7 +12,7 @@ type InstitutionSettings = {
 };
 
 type Props = {
-    profile: { name: string; short_code: string; status: string; security_phone: string | null; dpo_name: string | null; dpo_email: string | null; dpa_version: string | null };
+    profile: { name: string; short_code: string; status: string; security_phone: string | null; contact_name: string | null; contact_email: string | null; dpo_name: string | null; dpo_email: string | null; dpa_version: string | null };
     settings: InstitutionSettings;
     connector: null | Connector;
     querySets: Record<string, string>;
@@ -52,6 +52,7 @@ export default function Settings({ profile: institution, settings, connector, di
                         </div>
                     )}
 
+                    {can.settings && <InstitutionDetails profile={institution} />}
                     {can.connector && <RecordsConnection connector={connector} directAvailable={directAvailable} querySets={querySets} />}
                     {can.connector && <SignInSettings signIn={signIn} />}
 
@@ -118,6 +119,39 @@ export default function Settings({ profile: institution, settings, connector, di
                 </div>
             </PageBody>
         </AppLayout>
+    );
+}
+
+/** Name, short name and contacts of the institution, editable by its admins at any time. */
+function InstitutionDetails({ profile }: { profile: Props['profile'] }) {
+    const form = useForm({
+        name: profile.name, short_code: profile.short_code, contact_name: profile.contact_name ?? '', contact_email: profile.contact_email ?? '',
+        dpo_name: profile.dpo_name ?? '', dpo_email: profile.dpo_email ?? '',
+    });
+    const field = (key: keyof typeof form.data, label: string, opts: { type?: string; hint?: string; placeholder?: string; upper?: boolean } = {}) => (
+        <div>
+            <label className="label" htmlFor={`d-${key}`}>{label}</label>
+            <input id={`d-${key}`} type={opts.type ?? 'text'} className="input" value={form.data[key]} placeholder={opts.placeholder}
+                onChange={(e) => form.setData(key, opts.upper ? e.target.value.toUpperCase() : e.target.value)} />
+            {form.errors[key] ? <p className="mt-1 text-sm text-sos">{form.errors[key]}</p> : opts.hint && <p className="mt-1 text-sm text-muted">{opts.hint}</p>}
+        </div>
+    );
+    return (
+        <section className="rounded-2xl bg-white p-5">
+            <h2 className="text-lg font-bold">Institution details</h2>
+            <p className="mt-1 text-sm text-muted">How your institution appears to members, and who we contact about it.</p>
+            <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); form.post('/admin/settings/details', { preserveScroll: true }); }}>
+                <div className="sm:col-span-2">{field('name', 'Full name')}</div>
+                <div className="sm:col-span-2">{field('short_code', 'Short name', { upper: true, hint: 'Letters and numbers, e.g. FUSTE. Used in group names like "All FUSTE Students".' })}</div>
+                {field('contact_name', 'Contact person')}
+                {field('contact_email', 'Contact email', { type: 'email' })}
+                {field('dpo_name', 'Data protection officer')}
+                {field('dpo_email', 'Data protection email', { type: 'email' })}
+                <div className="sm:col-span-2">
+                    <button type="submit" className="btn-primary" disabled={form.processing || !form.isDirty}>{form.processing ? 'Saving…' : 'Save details'}</button>
+                </div>
+            </form>
+        </section>
     );
 }
 

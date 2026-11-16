@@ -271,3 +271,108 @@ Artisan::command('sos:face-model {--force : Download again}', function () {
 
     return 0;
 })->purpose('Download the face-tracking model used by face capture');
+
+Artisan::command('sos:doctor', function () {
+    // Checks the things that make features fail on a live server, and says how to fix each one.
+    $bad = 0;
+    $warn = 0;
+    $ok = fn (string $m) => $this->line("  <fg=green>✓</> {$m}");
+    $fail = function (string $m, string $fix) use (&$bad) { $bad++; $this->line("  <fg=red>✗</> {$m}"); $this->line("      → {$fix}"); };
+    $note = function (string $m, string $fix) use (&$warn) { $warn++; $this->line("  <fg=yellow>!</> {$m}"); $this->line("      → {$fix}"); };
+
+    $this->info('Database');
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $ok('Connected to '.config('database.default'));
+        $migrator = app('migrator');
+        $files = $migrator->getMigrationFiles(database_path('migrations'));
+        $ran = $migrator->getRepository()->repositoryExists() ? $migrator->getRepository()->getRan() : [];
+        $pending = array_diff(array_keys($files), $ran);
+        $pending ? $fail(count($pending).' database update(s) not applied: '.implode(', ', array_slice($pending, 0, 5)).(count($pending) > 5 ? ' …' : ''),
+            'php artisan migrate --force   (if it fails, send the error)') : $ok('All database updates applied');
+    } catch (\Throwable $e) {
+        $fail('Cannot use the database: '.$e->getMessage(), 'Check DB_HOST, DB_DATABASE, DB_USERNAME, DB_PASSWORD in .env');
+    }
+
+    $this->info('Website');
+    $url = (string) config('app.url');
+    str_starts_with($url, 'https://') ? $ok("APP_URL {$url}") : $fail("APP_URL is {$url}", 'Set APP_URL=https://your-domain (camera, microphone and calls need https)');
+    config('app.debug') && app()->isProduction() ? $fail('APP_DEBUG is on in production', 'Set APP_DEBUG=false') : $ok('Debug mode is right for '.app()->environment());
+    $life = (int) config('session.lifetime');
+    $life < 1440 ? $note("Sign-ins end after {$life} minutes without use", 'Set SESSION_LIFETIME=43200 (30 days), then php artisan config:cache') : $ok('Sign-ins last '.round($life / 1440).' days without use');
+
+    $this->info('Files and uploads');
+    foreach ([storage_path('app'), storage_path('app/private'), storage_path('framework/sessions'), storage_path('logs'), base_path('bootstrap/cache')] as $dir) {
+        if (! is_dir($dir)) { @mkdir($dir, 0775, true); }
+        is_dir($dir) && is_writable($dir) ? $ok('Writable: '.str_replace(base_path().'/', '', $dir))
+            : $fail('Not writable: '.$dir, 'sudo chown -R <web-user>:<web-user> storage bootstrap/cache && sudo chmod -R ug+rwX storage bootstrap/cache');
+    }
+    try {
+        \Illuminate\Support\Facades\Storage::disk('local')->put('doctor-check.txt', 'ok');
+        \Illuminate\Support\Facades\Storage::disk('local')->delete('doctor-check.txt');
+        $ok('Private files can be saved (face photos, exports)');
+    } catch (\Throwable $e) {
+        $fail('Private files cannot be saved: '.$e->getMessage(), 'Fix permissions on storage/app');
+    }
+    is_link(public_path('storage')) || is_dir(public_path('storage')) ? $ok('public/storage link exists') : $fail('public/storage link is missing (uploaded pictures and voice notes won\'t open)', 'php artisan storage:link');
+    $toBytes = function ($v) { $v = trim((string) $v); $n = (float) $v; return match (strtolower(substr($v, -1))) { 'g' => $n * 1073741824, 'm' => $n * 1048576, 'k' => $n * 1024, default => $n }; };
+    $up = $toBytes(ini_get('upload_max_filesize'));
+    $post = $toBytes(ini_get('post_max_size'));
+    $up < 50 * 1048576 || $post < 50 * 1048576
+        ? $note('PHP (command line) allows uploads of '.ini_get('upload_max_filesize').' / posts of '.ini_get('post_max_size'), 'In the PHP-FPM php.ini set upload_max_filesize=64M and post_max_size=64M; in nginx set client_max_body_size 64m; restart both. (The website uses PHP-FPM, whose limits can differ from this check.)')
+        : $ok('PHP upload limits look big enough');
+
+    $this->info('Live updates and background work');
+    $rt = \App\Support\Realtime::clientSettings();
+    if (! $rt) {
+        $note('Live updates (Reverb) are off: pages fall back to checking every few seconds', 'php artisan sos:realtime-setup, run reverb:start under Supervisor, and proxy it through nginx (docs/deployment.md)');
+    } else {
+        $ok("Live updates: clients connect to {$rt['scheme']}://".($rt['host'] ?? '(the site address)').":{$rt['port']}");
+        if (str_starts_with($url, 'https://') && $rt['scheme'] !== 'https') {
+            $fail('The site is https but live updates use plain ws:// — browsers block that, so calls ring late and chats update slowly',
+                'Set REVERB_PUBLIC_HOST=your-domain, REVERB_PUBLIC_PORT=443, REVERB_PUBLIC_SCHEME=https and proxy /app to Reverb in nginx (docs/deployment.md)');
+        }
+        $host = (string) config('broadcasting.connections.reverb.options.host') ?: '127.0.0.1';
+        $port = (int) (config('reverb.servers.reverb.port') ?? env('REVERB_SERVER_PORT', 8080));
+        $sock = @fsockopen(in_array($host, ['0.0.0.0', ''], true) ? '127.0.0.1' : '127.0.0.1', $port, $errno, $errstr, 2);
+        $sock ? $ok("Reverb is running on port {$port}") : $fail("Nothing is listening on port {$port}: Reverb isn't running", 'Run "php artisan reverb:start" under Supervisor/systemd (docs/deployment.md)');
+        if ($sock) { fclose($sock); }
+    }
+    $queue = config('queue.default');
+    if ($queue === 'sync') {
+        $ok('Background jobs run straight away (QUEUE_CONNECTION=sync)');
+    } else {
+        try {
+            $waiting = $queue === 'database' ? \Illuminate\Support\Facades\DB::table(config('queue.connections.database.table', 'jobs'))->where('created_at', '<', now()->subMinutes(2)->timestamp)->count() : 0;
+            $waiting > 0 ? $fail("{$waiting} background job(s) have waited over 2 minutes: no queue worker is running", 'Run "php artisan queue:work" under Supervisor/systemd (docs/deployment.md)')
+                : $ok("Background jobs ({$queue}) are not piling up");
+            $failed = \Illuminate\Support\Facades\Schema::hasTable('failed_jobs') ? \Illuminate\Support\Facades\DB::table('failed_jobs')->where('failed_at', '>', now()->subDay())->count() : 0;
+            $failed ? $note("{$failed} background job(s) failed in the last day", 'php artisan queue:failed (to see why), then php artisan queue:retry all') : null;
+        } catch (\Throwable $e) {
+            $note('Could not check the queue: '.$e->getMessage(), 'php artisan migrate --force');
+        }
+    }
+
+    $this->info('Calls');
+    $c = config('sos.calls');
+    if (($c['turn_host'] && $c['turn_secret']) || ($c['turn_urls'] && $c['turn_username'])) {
+        $ok('A relay (TURN) server is set: calls can connect between different networks');
+        if ($c['turn_host']) {
+            $s = @fsockopen($c['turn_host'], 3478, $e1, $e2, 3);
+            $s ? $ok("TURN server answers on {$c['turn_host']}:3478") : $fail("TURN server {$c['turn_host']}:3478 can't be reached", 'Start coturn and open ports 3478 (TCP+UDP) and 49152-65535/UDP in the firewall (docs/calls.md)');
+            if ($s) { fclose($s); }
+        }
+    } else {
+        $fail('No relay (TURN) server: calls only connect when both people are on the same network',
+            'Set up coturn (docs/calls.md) and set TURN_HOST + TURN_SECRET, or use a hosted TURN service with TURN_URLS, TURN_USERNAME, TURN_PASSWORD');
+    }
+
+    $this->info('Face capture');
+    is_file(public_path('mediapipe/face_landmarker.task')) ? $ok('Face model is on this server') : $note('Face model not downloaded (it loads from Google instead, slower)', 'php artisan sos:face-model');
+    is_dir(public_path('mediapipe/wasm')) ? $ok('Face tracking files are present') : $fail('public/mediapipe/wasm is missing', 'Deploy again (the folder is part of the code)');
+
+    $this->newLine();
+    $bad ? $this->error("{$bad} problem(s) to fix".($warn ? ", {$warn} to look at" : '')) : ($warn ? $this->warn("No blocking problems; {$warn} to look at") : $this->info('Everything looks right.'));
+
+    return $bad ? 1 : 0;
+})->purpose('Check the server set-up (database, uploads, live updates, calls, face capture) and say how to fix problems');

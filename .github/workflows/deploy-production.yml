@@ -138,9 +138,13 @@ jobs:
           php artisan event:cache
           # Routes are not cached: a few use closures.
 
+          php artisan storage:link || true     # uploaded pictures and voice notes are served from public/storage
           php artisan sos:face-model || true   # one-time download of the face model (skipped if already there)
           php artisan queue:restart || true    # workers pick up the new code
           php artisan reverb:restart || true   # live updates server picks up the new code
+
+          # Report anything wrong with the server set-up (calls relay, live updates, uploads...) in the log.
+          php artisan sos:doctor || echo "::warning::sos:doctor found set-up problems: see the lines above."
 
           echo "Deployed $DEPLOY_SHA from $DEPLOY_REPO."
           REMOTE

@@ -26,7 +26,7 @@ class AdminController extends Controller
         $i = $request->user()->institution;
 
         return Inertia::render('Admin/Settings', [
-            'profile' => $i->only(['name', 'short_code', 'country', 'status', 'security_phone', 'dpo_name', 'dpo_email', 'email_domains', 'dpa_version', 'dpa_accepted_at']),
+            'profile' => $i->only(['name', 'short_code', 'country', 'status', 'security_phone', 'contact_name', 'contact_email', 'dpo_name', 'dpo_email', 'email_domains', 'dpa_version', 'dpa_accepted_at']),
             'settings' => array_merge(Institution::DEFAULT_SETTINGS, $i->settings ?? []),
             'connector' => $i->connector ? $i->connector->only(['base_url', 'key_id', 'query_set', 'last_tested_at', 'last_test_ok', 'last_error'])
                 + ['db' => array_diff_key($i->connector->db_settings ?? [], ['password' => true]) + ['has_password' => ! empty($i->connector->db_settings['password'])]] : null,
@@ -58,6 +58,36 @@ class AdminController extends Controller
         \App\Support\Access::forget();
 
         return back()->with('status', 'Settings saved.');
+    }
+
+    /** The institution's own details: name, short name, contacts. Changing the short name renames the automatic groups. */
+    public function saveDetails(Request $request): RedirectResponse
+    {
+        $i = $request->user()->institution;
+        $data = $request->validate([
+            'name' => 'required|string|min:3|max:190',
+            'short_code' => ['required', 'string', 'min:2', 'max:12', 'regex:/^[A-Za-z0-9]+$/', \Illuminate\Validation\Rule::unique('institutions', 'short_code')->ignore($i->id)],
+            'contact_name' => 'required|string|max:120',
+            'contact_email' => 'required|email|max:190',
+            'dpo_name' => 'nullable|string|max:120',
+            'dpo_email' => 'nullable|email|max:190',
+        ], ['short_code.regex' => 'Use letters and numbers only, for example FUSTE.', 'short_code.unique' => 'Another institution already uses this short name.']);
+        $data['short_code'] = strtoupper($data['short_code']);
+
+        $before = $i->only(array_keys($data));
+        $i->update($data);
+        $changed = array_keys(array_diff_assoc(array_map('strval', $data), array_map('strval', $before)));
+        AuditLog::record('institution.details_updated', $i, ['fields' => $changed]);
+
+        // The automatic groups ("All FUSTE Students"...) carry the short name: refresh them in the background.
+        if (in_array('short_code', $changed, true)) {
+            $id = $i->id;
+            dispatch(function () use ($id) {
+                app(\App\Services\Groups\AutoGroupSync::class)->buildAll(\App\Models\Institution::findOrFail($id));
+            })->afterResponse();
+        }
+
+        return back()->with('status', $changed ? 'Institution details saved.' : 'Nothing changed.');
     }
 
     /**

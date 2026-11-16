@@ -19,8 +19,11 @@ const time = (s: string) => {
  * Floating chat for the platform team and school admins (bottom right of every page of the website).
  * Platform owners talk to each other and to any school's admins; school admins talk to the platform team.
  */
-/** raised: leave room for the phone-size bottom bar. lifted: leave room for a message box at the bottom (chat pages). */
-export function PlatformChat({ raised, lifted = false }: { raised: boolean; lifted?: boolean }) {
+/**
+ * lifted: leave room for a message box at the bottom (chat pages). On phone-size screens there is no floating button
+ * (it would cover buttons): the page's top bar has the chat button instead and opens this with the 'sos:platform-chat' event.
+ */
+export function PlatformChat({ lifted = false }: { lifted?: boolean }) {
     const [open, setOpen] = useState(false);
     const [view, setView] = useState<'list' | 'new' | number>('list');
     const [threads, setThreads] = useState<Thread[]>([]);
@@ -32,10 +35,16 @@ export function PlatformChat({ raised, lifted = false }: { raised: boolean; lift
         try {
             const r = await api<{ threads: Thread[]; unread: number; platform: boolean }>('/platform-chat');
             setThreads(r.threads); setUnread(r.unread); setPlatform(r.platform); setError(null);
+            window.dispatchEvent(new CustomEvent('sos:platform-chat-unread', { detail: r.unread }));
         } catch (e) { setError((e as Error).message); }
     }, []);
 
     useEffect(() => { load(); }, [load]);
+    useEffect(() => {
+        const openIt = () => { setOpen(true); load(); };
+        window.addEventListener('sos:platform-chat', openIt);
+        return () => window.removeEventListener('sos:platform-chat', openIt);
+    }, [load]);
     useEffect(() => listenUser('platform.message', () => load()), [load]);
     // Safety net when live updates are down: check every 20 s while open, every 60 s while closed.
     useEffect(() => { const t = window.setInterval(load, open ? 20_000 : 60_000); return () => window.clearInterval(t); }, [load, open]);
@@ -47,7 +56,7 @@ export function PlatformChat({ raised, lifted = false }: { raised: boolean; lift
             {!open && (
                 <button
                     onClick={() => { setOpen(true); load(); }}
-                    className={`fixed right-4 z-40 flex size-14 items-center justify-center rounded-full bg-grove text-white shadow-[0_8px_24px_rgba(14,59,46,0.35)] transition hover:scale-105 ${lifted ? 'md:bottom-24' : 'md:bottom-6'} md:right-6 ${raised || lifted ? 'bottom-24' : 'bottom-6'}`}
+                    className={`fixed right-6 z-40 hidden size-14 items-center justify-center rounded-full bg-grove text-white shadow-[0_8px_24px_rgba(14,59,46,0.35)] transition hover:scale-105 md:flex ${lifted ? 'bottom-24' : 'bottom-6'}`}
                     aria-label={unread ? `Platform chat, ${unread} unread` : 'Platform chat'}
                     title="Platform chat"
                 >

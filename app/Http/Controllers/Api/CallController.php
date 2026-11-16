@@ -20,21 +20,36 @@ class CallController extends Controller
 {
     public function iceServers(Request $request): JsonResponse
     {
-        $host = config('sos.calls.turn_host');
-        $secret = config('sos.calls.turn_secret');
-        $servers = [['urls' => 'stun:stun.l.google.com:19302']];
-        if ($host && $secret) {
-            $ttl = config('sos.calls.turn_ttl');
-            $username = (time() + $ttl).':'.$request->user()->id;
-            $credential = base64_encode(hash_hmac('sha1', $username, $secret, true));
-            $servers = [
-                ['urls' => "stun:{$host}:3478"],
-                ['urls' => ["turn:{$host}:3478?transport=udp", "turn:{$host}:3478?transport=tcp", "turns:{$host}:5349?transport=tcp"],
-                    'username' => $username, 'credential' => $credential],
-            ];
+        return response()->json(['iceServers' => self::servers($request->user()->id)]);
+    }
+
+    /** STUN finds each side's public address; TURN relays the call when the two networks can't reach each other. */
+    public static function servers(int $userId): array
+    {
+        $c = config('sos.calls');
+        $servers = [['urls' => ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']]];
+
+        if (! empty($c['turn_host']) && ! empty($c['turn_secret'])) {
+            // coturn "use-auth-secret": a login that expires, made from the shared secret.
+            $host = $c['turn_host'];
+            $username = (time() + (int) $c['turn_ttl']).':'.$userId;
+            $credential = base64_encode(hash_hmac('sha1', $username, $c['turn_secret'], true));
+            $urls = ["turn:{$host}:3478?transport=udp", "turn:{$host}:3478?transport=tcp"];
+            if (! empty($c['turn_tls'])) {
+                $urls[] = "turns:{$host}:5349?transport=tcp";
+            }
+            $servers[] = ['urls' => "stun:{$host}:3478"];
+            $servers[] = ['urls' => $urls, 'username' => $username, 'credential' => $credential];
         }
 
-        return response()->json(['iceServers' => $servers]);
+        if (! empty($c['turn_urls']) && ! empty($c['turn_username'])) {
+            $urls = array_values(array_filter(array_map('trim', explode(',', (string) $c['turn_urls']))));
+            if ($urls) {
+                $servers[] = ['urls' => $urls, 'username' => $c['turn_username'], 'credential' => (string) $c['turn_password']];
+            }
+        }
+
+        return $servers;
     }
 
     public function index(Request $request): JsonResponse
@@ -151,13 +166,13 @@ class CallController extends Controller
     private function party(Request $request, string $uuid): CallLog
     {
         $log = CallLog::where('call_uuid', $uuid)->firstOrFail();
-        abort_unless(in_array($request->user()->id, [$log->caller_id, $log->callee_id], true), 403);
+        abort_unless(in_array((int) $request->user()->id, [(int) $log->caller_id, (int) $log->callee_id], true), 403);
 
         return $log;
     }
 
     private function other(CallLog $log, int $me): int
     {
-        return $log->caller_id === $me ? $log->callee_id : $log->caller_id;
+        return (int) $log->caller_id === $me ? (int) $log->callee_id : (int) $log->caller_id;
     }
 }

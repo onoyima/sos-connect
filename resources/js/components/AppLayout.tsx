@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
-    LifeBuoy, ScanFace,
+    LifeBuoy, ScanFace, Headset,
     Bell, CircleAlert, CircleCheck, CircleDot, Ellipsis, LogOut, Megaphone, Menu, MessageCircle, Phone, Settings, ShieldCheck, Siren, ScrollText, LockKeyhole, WifiOff, X,
 } from 'lucide-react';
 import { isLive, listenInstitution, listenUser, onBadges, onChange, startLive, type Badges } from '@/lib/live';
@@ -52,6 +52,13 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
     const [flashOpen, setFlashOpen] = useState(true);
     const [menu, setMenu] = useState(false);
     const [drawer, setDrawer] = useState(false);
+    // Unread platform-chat messages (the chat button is in the phone top bar; on bigger screens it floats).
+    const [pcUnread, setPcUnread] = useState(0);
+    useEffect(() => {
+        const f = (e: Event) => setPcUnread((e as CustomEvent<number>).detail ?? 0);
+        window.addEventListener('sos:platform-chat-unread', f);
+        return () => window.removeEventListener('sos:platform-chat-unread', f);
+    }, []);
     // "Remind me later" hides the face capture reminder until the next time the site is opened.
     const [faceLater, setFaceLater] = useState(() => { try { return sessionStorage.getItem('sos.faceLater') === '1'; } catch { return false; } });
     const [badges, setBadges] = useState<Badges>({ chats: 0, calls: 0, requests: 0 });
@@ -169,6 +176,13 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
                         <div className="truncate text-[15px] font-semibold">{title}</div>
                         <div className="truncate text-xs text-white/60">{institution?.name}</div>
                     </div>
+                    {auth?.platform_chat && (
+                        <button onClick={() => window.dispatchEvent(new Event('sos:platform-chat'))} aria-label={pcUnread ? `Platform chat, ${pcUnread} unread` : 'Platform chat'}
+                            className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10">
+                            <Headset size={21} />
+                            {pcUnread > 0 && <span className="absolute top-0.5 right-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber px-1 text-[10px] font-bold text-ink">{pcUnread > 99 ? '99+' : pcUnread}</span>}
+                        </button>
+                    )}
                     <Link href="/chats" aria-label="Home" className="shrink-0 pr-1"><Logo small /></Link>
                 </header>
             )}
@@ -236,7 +250,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
 
             {auth?.user.needs_policy_acceptance && <PolicyGate />}
             {auth && <CallManager />}
-            {auth?.platform_chat && <PlatformChat raised={!inAdmin} lifted={url.startsWith('/chats')} />}
+            {auth?.platform_chat && <PlatformChat lifted={url.startsWith('/chats')} />}
         </div>
     );
 }
