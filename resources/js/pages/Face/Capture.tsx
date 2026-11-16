@@ -23,6 +23,17 @@ const STEPS: Step[] = [
     { key: 'mouth', kind: 'mouth', say: 'Open your mouth wide' },
     { key: 'front_final', kind: 'front', say: 'Last one: look straight at the camera and keep still', final: true },
 ];
+/** A clear English voice for the spoken guide (a Nigerian, British or American one if the device has it). */
+let chosenVoice: SpeechSynthesisVoice | null | undefined;
+function pickVoice(): SpeechSynthesisVoice | null {
+    if (chosenVoice !== undefined) return chosenVoice;
+    const all = typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices() : [];
+    if (!all.length) return null; // not loaded yet: the browser's default is used this time
+    const by = (lang: string) => all.find((v) => v.lang.replace('_', '-').toLowerCase().startsWith(lang) && v.localService) ?? all.find((v) => v.lang.replace('_', '-').toLowerCase().startsWith(lang));
+    chosenVoice = by('en-ng') ?? by('en-gb') ?? by('en-us') ?? by('en') ?? null;
+    return chosenVoice;
+}
+
 const POSE_LABEL: Record<Pose, string> = { front: 'Front', left: 'Left', right: 'Right', up: 'Up', down: 'Down', mouth: 'Mouth open', front_final: 'Front (final)' };
 
 type Shot = { pose: Pose; url: string; status: 'saving' | 'saved' | 'failed'; quality?: number };
@@ -74,9 +85,36 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
         try { (window as unknown as { ReactNativeWebView?: { postMessage: (m: string) => void } }).ReactNativeWebView?.postMessage(msg); } catch { /* not in the app */ }
     };
 
-    const speak = (text: string) => {
-        if (!voiceOn.current || typeof speechSynthesis === 'undefined') return;
-        try { speechSynthesis.cancel(); speechSynthesis.speak(Object.assign(new SpeechSynthesisUtterance(text), { rate: 0.95 })); } catch { /* no voice */ }
+    /**
+     * The spoken guide. "now" interrupts whatever is being said; "queue" waits for it to finish (e.g. "Good." then
+     * the next instruction). Inside the phone app the app speaks (Android's built-in browser has no voice);
+     * on the website the browser does.
+     */
+    const busyUntil = useRef(0);
+    const speak = (text: string, mode: 'now' | 'queue' = 'now') => {
+        if (!voiceOn.current) return;
+        const now = performance.now();
+        const length = Math.max(900, text.split(/\s+/).length * 380);
+        busyUntil.current = (mode === 'queue' && busyUntil.current > now ? busyUntil.current : now) + length;
+        const app = (window as unknown as { ReactNativeWebView?: { postMessage: (m: string) => void } }).ReactNativeWebView;
+        if (app) {
+            try { app.postMessage('face:say:' + JSON.stringify({ t: text, q: mode === 'queue' })); } catch { /* ignore */ }
+            return;
+        }
+        if (typeof speechSynthesis === 'undefined') return;
+        try {
+            if (mode === 'now') speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 0.95;
+            const v = pickVoice();
+            if (v) u.voice = v;
+            speechSynthesis.speak(u);
+        } catch { /* no voice */ }
+    };
+    const hush = () => {
+        busyUntil.current = 0;
+        try { (window as unknown as { ReactNativeWebView?: { postMessage: (m: string) => void } }).ReactNativeWebView?.postMessage('face:hush'); } catch { /* ignore */ }
+        try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch { /* ignore */ }
     };
 
     const begin = async () => {
@@ -133,17 +171,38 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
         const have = new Set<Pose>();
         let lastHint = '';
 
+        // Corrections ("Move a little closer", "Keep turning…") are spoken once they have stayed on screen for a
+        // moment, never over an instruction, and not over and over; the instruction is repeated if nothing happens.
+        let hintSince = 0;
+        const spokenAt = new Map<string, number>();
+        let instructionAt = performance.now();
         const say = (h: string | null, ok = false) => {
-            if (h !== lastHint) { lastHint = h ?? ''; setHint(h); }
+            const now = performance.now();
+            if (h !== lastHint) { lastHint = h ?? ''; hintSince = now; setHint(h); }
             setGood(ok);
+            if (!h || now < busyUntil.current) return;
+            const instruction = h === STEPS[step]?.say;
+            if (instruction) {
+                if (now - instructionAt > 7000) { instructionAt = now; speak(h); }
+                return;
+            }
+            const steady = now - hintSince > (h.startsWith('Hold still') ? 1800 : 1100);
+            if (steady && now - (spokenAt.get(h) ?? -1e9) > 5000) { spokenAt.set(h, now); speak(h.replace(/…$/, '')); }
         };
+        const PRAISE = ['Good.', 'Good.', 'Great.', 'Good.', 'Nice.', 'Good.', 'Good.', 'Perfect.'];
         const next = () => {
+            const praise = PRAISE[step] ?? 'Good.';
             step++;
             holdSince = 0;
             pause = performance.now() + 700;
+            setGood(true);
+            setHint(praise.replace('.', ''));
+            lastHint = '';
+            speak(praise, 'now');
             if (step < STEPS.length) {
                 setStepIndex(step);
-                speak(STEPS[step].say);
+                speak(STEPS[step].say, 'queue');
+                instructionAt = performance.now() + 2500;
             }
         };
 
@@ -187,7 +246,7 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
             cancelAnimationFrame(raf);
             stream.getTracks().forEach((t) => t.stop());
             setPhase('saving');
-            speak('Thank you. Saving your photos.');
+            speak('Perfect. Thank you. Saving your photos.', 'now');
             await uploads;
             if (failed.size) {
                 setError(`Some photos could not be saved. ${lastError ?? 'Check your internet connection.'} Please start again.`);
@@ -210,7 +269,7 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
             }
         };
 
-        stop.current = () => { alive = false; cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); };
+        stop.current = () => { alive = false; cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); hush(); };
         speak(STEPS[0].say);
 
         const handle = (f: Frame, now: number) => {
@@ -254,9 +313,9 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
                     next();
                 }
             } else if (s.kind === 'blink') {
-                say('Blink your eyes', false);
+                say(s.say, false);
                 if (f.eyesClosed > 0.5) blinkClosed = true;
-                else if (blinkClosed && f.eyesClosed < 0.25) { blinkClosed = false; blinks++; say('Good', true); next(); }
+                else if (blinkClosed && f.eyesClosed < 0.25) { blinkClosed = false; blinks++; next(); } // next() says Good
             } else if (s.kind === 'turn') {
                 const side: 'left' | 'right' = f.yaw > 0 ? 'left' : 'right';
                 const wanted = firstTurn ? (firstTurn === 'left' ? 'right' : 'left') : null;
@@ -310,7 +369,7 @@ export default function Capture({ mode, base, state: initial, name }: Props) {
                     {name && <p className="truncate text-sm text-white/60">{name}</p>}
                 </div>
                 {phase === 'capturing' && (
-                    <button onClick={() => setVoice((x) => !x)} className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/10" aria-label={voice ? 'Turn spoken guide off' : 'Turn spoken guide on'}>
+                    <button onClick={() => setVoice((x) => { if (x) hush(); return !x; })} className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/10" aria-label={voice ? 'Turn spoken guide off' : 'Turn spoken guide on'}>
                         {voice ? <Volume2 size={20} /> : <VolumeX size={20} />}
                     </button>
                 )}

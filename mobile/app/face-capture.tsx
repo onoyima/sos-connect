@@ -1,4 +1,5 @@
 import { useCameraPermissions } from 'expo-camera';
+import * as Speech from 'expo-speech';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
@@ -30,6 +31,7 @@ export default function FaceCapture() {
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    useEffect(() => () => { Speech.stop(); }, []);
 
     if (error || !url) {
         return (
@@ -56,6 +58,17 @@ export default function FaceCapture() {
                 mediaCapturePermissionGrantType="grant"
                 onMessage={(e) => {
                     const m = e.nativeEvent.data;
+                    // The spoken guide ("Turn your head to the left" … "Good."): the phone's own voice, which works on
+                    // every phone (Android's built-in browser has none).
+                    if (m.startsWith('face:say:')) {
+                        try {
+                            const { t, q } = JSON.parse(m.slice(9)) as { t: string; q: boolean };
+                            if (!q) Speech.stop();
+                            Speech.speak(t, { language: 'en', rate: 0.95 });
+                        } catch { /* ignore */ }
+                        return;
+                    }
+                    if (m === 'face:hush') { Speech.stop(); return; }
                     if (m === 'face:done') refreshMe().catch(() => {});
                     if (m === 'face:close') router.back();
                 }}
