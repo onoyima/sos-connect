@@ -1,3 +1,4 @@
+import { soundChoices, startRingtone, stopRingtone } from './tones';
 /**
  * Call sounds made in the browser (no audio files): a ringtone for incoming calls and a ringback tone while
  * calling someone. Also flashes the tab title and, if the page is in the background, shows a desktop
@@ -33,9 +34,12 @@ function burst(freqs: number[], seconds: number, volume: number) {
     }
 }
 
-export function startRing(kind: 'incoming' | 'outgoing', who?: string, onClickNotice?: () => void) {
+export function startRing(kind: 'incoming' | 'outgoing', who?: string, onClickNotice?: () => void, ringtone?: 'call' | 'group_call') {
     stopRing();
-    try {
+    // Incoming calls ring with the tone the person chose (Settings > Sounds); "silent" only flashes and vibrates.
+    const chosen = kind === 'incoming' ? soundChoices()?.[ringtone ?? 'call'] : undefined;
+    const custom = chosen ? (chosen === 'silent' ? true : startRingtone(chosen)) : false;
+    if (!custom) try {
         const play = kind === 'incoming'
             ? () => { burst([440, 480], 0.4, 0.22); window.setTimeout(() => burst([440, 480], 0.4, 0.22), 600); }
             : () => burst([425], 1, 0.08);
@@ -58,6 +62,7 @@ export function startRing(kind: 'incoming' | 'outgoing', who?: string, onClickNo
 }
 
 export function stopRing() {
+    stopRingtone();
     if (loop) window.clearInterval(loop);
     loop = null;
     if (titleTimer) { window.clearInterval(titleTimer); titleTimer = null; document.title = baseTitle || document.title; }

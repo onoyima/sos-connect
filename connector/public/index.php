@@ -79,6 +79,14 @@ try {
     if ($method === 'GET' && preg_match('#^/v1/member/((?:st|sf)-\d+)$#', $path, $m)) {
         respond(directory()->member($m[1]));
     }
+    if ($method === 'POST' && $path === '/v1/people-search') {
+        $in = json_decode($body, true) ?: [];
+        respond(directory()->peopleSearch((string) ($in['q'] ?? ''), array_values(array_intersect((array) ($in['kinds'] ?? []), ['student', 'staff']))));
+    }
+    if ($method === 'POST' && $path === '/v1/staff-search') {
+        $in = json_decode($body, true) ?: [];
+        respond(directory()->staffSearch((string) ($in['q'] ?? '')));
+    }
     if ($method === 'GET' && $path === '/v1/org-units') {
         respond(directory()->orgUnits());
     }

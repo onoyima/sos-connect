@@ -8,14 +8,17 @@ import { CallProvider } from '@/calls/CallContext';
 import { CallOverlay } from '@/ui/CallOverlay';
 import { BroadcastPopup } from '@/broadcasts/Popup';
 import { SosAlarm } from '@/ui/SosAlarm';
+import { openChat } from '@/chat/openChat';
 import { Button, Icon } from '@/ui/components';
 import { colors, ui } from '@/ui/theme';
 
 Notifications.setNotificationHandler({
     // With the app open, an SOS shows the full-screen alarm (with its own siren) instead of a second sound.
     handleNotification: async (n) => {
-        const sos = (n.request.content.data as { type?: string })?.type === 'sos';
-        return { shouldShowBanner: !sos, shouldShowList: true, shouldPlaySound: !sos, shouldSetBadge: true };
+        const d = n.request.content.data as { type?: string; conversation_id?: number };
+        const sos = d?.type === 'sos';
+        const here = d?.type === 'message' && Number(d.conversation_id) === openChat(); // that chat is on screen already
+        return { shouldShowBanner: !sos && !here, shouldShowList: !here, shouldPlaySound: !sos && !here, shouldSetBadge: true };
     },
 });
 

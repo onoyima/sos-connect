@@ -2,6 +2,7 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import * as FileSystem from 'expo-file-system/legacy';
 import { Vibration } from 'react-native';
 import { toBase64 } from '@/lib/base64';
+import { ringFile } from '@/sound/play';
 
 /**
  * Call sounds without shipping audio files: a ringtone (incoming) and a ringback tone (calling someone) are
@@ -47,12 +48,15 @@ async function file(kind: 'incoming' | 'outgoing') {
     return path;
 }
 
-export async function startRing(kind: 'incoming' | 'outgoing') {
+/** tone: the ringtone the person chose (Settings > Sounds); "silent" = vibrate only. */
+export async function startRing(kind: 'incoming' | 'outgoing', tone?: string) {
     stopRing();
     if (kind === 'incoming') Vibration.vibrate([0, 700, 500, 700, 1600], true);
+    if (kind === 'incoming' && tone === 'silent') return;
     try {
         await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false, shouldPlayInBackground: true });
-        player = createAudioPlayer({ uri: await file(kind) });
+        const chosen = kind === 'incoming' ? ringFile(tone) : null;
+        player = createAudioPlayer(chosen ?? { uri: await file(kind) });
         player.loop = true;
         player.volume = kind === 'incoming' ? 1 : 0.4;
         player.play();

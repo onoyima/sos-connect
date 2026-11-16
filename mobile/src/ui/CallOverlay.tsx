@@ -1,3 +1,4 @@
+import { useAuth } from '@/auth/AuthContext';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,10 +34,12 @@ function useClock(since: number | null) {
 
 export function CallOverlay() {
     const c = useCalls();
+    const { me } = useAuth();
     // Ring (and vibrate) while a call is coming in; ringback while calling; stop as soon as it's answered or over.
     const ringing = c.ring && !c.group ? 'incoming' : c.phase === 'ringing-in' ? 'incoming' : c.phase === 'ringing-out' ? 'outgoing' : null;
+    const tone = c.ring && !c.group ? me?.sounds?.group_call : me?.sounds?.call; // the ringtone they chose
     useEffect(() => {
-        if (ringing) startRing(ringing);
+        if (ringing) startRing(ringing, tone);
         else stopRing();
         return () => stopRing();
     }, [ringing]);

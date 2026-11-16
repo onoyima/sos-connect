@@ -31,7 +31,7 @@ class DirectoryController extends Controller
             ->where(fn ($w) => $w->where(fn ($x) => $x->where('from_id', $me->id)->whereIn('to_id', $ids))
                 ->orWhere(fn ($x) => $x->where('to_id', $me->id)->whereIn('from_id', $ids)))->get();
 
-        return response()->json(['people' => $people->map(function ($p) use ($me, $pending) {
+        return response()->json(['records' => $this->fromRecords($me, $q, $type), 'people' => $people->map(function ($p) use ($me, $pending) {
             [$mode, $why] = \App\Services\Chat\ContactPolicy::decide($me, $p);
             if ($mode === \App\Services\Chat\ContactPolicy::REQUEST && ! \App\Support\Modules::enabled($me->institution, 'chat_requests')) {
                 [$mode, $why] = [\App\Services\Chat\ContactPolicy::NONE, 'Chat requests are switched off'];
@@ -45,6 +45,37 @@ class DirectoryController extends Controller
                 'reach_note' => $mode === \App\Services\Chat\ContactPolicy::NONE ? $why : null,
             ];
         })]);
+    }
+
+    /**
+     * People in the school's records who have never signed in to SOS Connect: students and alumni find each other,
+     * staff find staff and students. Only name and department are shown; choosing one opens their account (from the
+     * records) so a chat or chat request can reach them, and they see it the first time they sign in.
+     */
+    private function fromRecords(\App\Models\User $me, string $q, ?string $type): array
+    {
+        $staff = in_array($me->member_type, ['staff', 'admin'], true);
+        $kinds = $staff ? ['staff', 'student'] : (in_array($me->member_type, ['student', 'alumni'], true) ? ['student'] : []);
+        if ($type === 'staff') {
+            $kinds = array_intersect($kinds, ['staff']);
+        } elseif ($type === 'student') {
+            $kinds = array_intersect($kinds, ['student']);
+        }
+        if (! $kinds || mb_strlen($q) < 3 || ! $me->institution?->connector) {
+            return [];
+        }
+        try {
+            $found = (new \App\Services\Connector\ConnectorClient($me->institution->connector))->peopleSearch($q, array_values($kinds));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return [];
+        }
+        $known = \App\Models\User::inInstitution($me->institution_id)->whereIn('external_id', array_map(fn ($p) => $p->externalId, $found))->pluck('external_id')->all();
+
+        return collect($found)->reject(fn ($p) => in_array($p->externalId, $known, true) || $p->status !== 'active')->take(15)
+            ->map(fn ($p) => ['external_id' => $p->externalId, 'name' => $p->name, 'member_type' => $p->type,
+                'department' => $p->department['name'] ?? $p->adminDepartment['name'] ?? $p->faculty['name'] ?? null])->values()->all();
     }
 
     /**

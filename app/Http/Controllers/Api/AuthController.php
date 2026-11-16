@@ -63,6 +63,7 @@ class AuthController extends Controller
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'sounds' => \App\Support\Sounds::for($user), // tones chosen in Settings > Sounds
             'title' => $user->title,
             'member_type' => $user->member_type,
             'identifier' => $user->identifier,

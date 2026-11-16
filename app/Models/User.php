@@ -29,6 +29,7 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'preferences' => 'array', 'show_whatsapp' => 'boolean',
             'password' => 'hashed',
             'is_minor' => 'boolean',
             'web_session_at' => 'datetime',
@@ -125,6 +126,20 @@ class User extends Authenticatable
             'alumni_year' => $this->member_type === 'alumni' ? $this->alumni_year : null,
             'email' => $staffView ? $this->email : null,
             'last_seen_at' => $this->last_seen_at?->toIso8601String(),
+            // Their WhatsApp (their own number if they set one, otherwise the school's), unless they hid it.
+            'whatsapp' => $viewer && $viewer->institution_id === $this->institution_id ? $this->whatsappNumber($viewer->institution?->country) : null,
+            'phone' => $viewer && $viewer->institution_id === $this->institution_id ? \App\Support\PhoneNumber::pretty($this->whatsappNumber($viewer->institution?->country)) : null,
         ], fn ($v) => $v !== null);
+    }
+
+    /** The number to reach this person on WhatsApp (international digits), or null if hidden or unknown. */
+    public function whatsappNumber(?string $country = null): ?string
+    {
+        if ($this->show_whatsapp === false) {
+            return null;
+        }
+        $country ??= $this->relationLoaded('institution') ? $this->institution?->country : null;
+
+        return \App\Support\PhoneNumber::international($this->whatsapp ?: $this->phone, $country ?? 'NG');
     }
 }

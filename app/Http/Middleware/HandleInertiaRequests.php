@@ -30,6 +30,7 @@ class HandleInertiaRequests extends Middleware
                 'super' => Access::isSuper($user),
                 // School admins see where their subscription stands (trial ending, payment due, lapsed).
                 'billing' => fn () => $user->institution_id && Access::can($user, 'settings.edit') ? \App\Services\Billing\Billing::summary($institution) : null,
+                'sounds' => \App\Support\Sounds::for($user),
                 // Platform owners and school admins get the platform chat widget.
                 'platform_chat' => fn () => \App\Services\PlatformChat\PlatformChat::canUse($user),
                 // Lets this page tell whether a "signed in on another browser" signal is about itself.

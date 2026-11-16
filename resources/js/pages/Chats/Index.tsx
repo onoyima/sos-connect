@@ -1,12 +1,14 @@
 import { compressImage } from '@/lib/compress';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, ArrowLeft, AtSign, BellOff, Check, EllipsisVertical, PauseCircle, PlayCircle, Plus, CheckCheck, ChevronDown, ChevronRight, Clock, FileText, Flag, Lock, Megaphone, MessageCircle, Paperclip, Pencil, Phone, Radio, Reply, Search, SendHorizontal, Smile, SquarePen, Trash2, UserPlus, Users, UsersRound, Video, X } from 'lucide-react';
+import { Forward, Share2, Archive, ArchiveRestore, ArrowLeft, AtSign, BellOff, Check, EllipsisVertical, PauseCircle, PlayCircle, Plus, CheckCheck, ChevronDown, ChevronRight, Clock, FileText, Flag, Lock, Megaphone, MessageCircle, Paperclip, Pencil, Phone, Radio, Reply, Search, SendHorizontal, Smile, SquarePen, Trash2, UserPlus, Users, UsersRound, Video, X } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import { joinGroupCall, startCall, startGroupCall } from '@/components/CallManager';
 import { MicButton, VoicePlayer, VoiceRecorder, canRecordVoice } from '@/components/VoiceNote';
 import { EmojiPanel, StickerView } from '@/components/EmojiPanel';
 import { GroupInfo } from '@/components/GroupInfo';
+import { ProfileSheet } from '@/components/ProfileSheet';
+import { setOpenChat } from '@/lib/openChat';
 import { stickerById } from '@/lib/stickers';
 import { Avatar, EmptyState, Modal, memberLabel, when } from '@/components/ui';
 import { api, fileUrl, uuid } from '@/lib/api';
@@ -14,6 +16,19 @@ import { listenUser, onChange, onMessage, refreshBadges } from '@/lib/live';
 import type { ChatMessage, Community, ConversationSummary, SharedProps } from '@/types';
 
 type Person = { id: number; name: string; title?: string | null; member_type?: string; department?: string; level?: number };
+
+/** Kept between visits (in memory only, cleared on sign-out by the page reload): recent chats and messages. */
+const kept = { user: 0, conversations: [] as ConversationSummary[], communities: [] as Community[], messages: new Map<number, ChatMessage[]>() };
+/** Someone else signed in on this tab: forget the last person's chats. */
+function keptFor(userId: number) {
+    if (kept.user !== userId) Object.assign(kept, { user: userId, conversations: [], communities: [], messages: new Map() });
+    return kept;
+}
+function remember(id: number, list: ChatMessage[]) {
+    kept.messages.delete(id);
+    kept.messages.set(id, list.slice(-60));
+    if (kept.messages.size > 30) kept.messages.delete(kept.messages.keys().next().value!); // the 30 most recent chats
+}
 
 export default function Chats({ openConversationId }: { openConversationId: number | null }) {
     const { auth, reverb, modules } = usePage<SharedProps>().props;
@@ -23,11 +38,12 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     const [infoOpen, setInfoOpen] = useState(false);
     const [sendingVoice, setSendingVoice] = useState(false);
     const [liveCall, setLiveCall] = useState<{ call_uuid: string; type: 'voice' | 'video'; participants: { id: number; name: string }[]; in_call: boolean } | null>(null);
-    const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-    const [communities, setCommunities] = useState<Community[]>([]);
+    const [conversations, setConversations] = useState<ConversationSummary[]>(() => keptFor(auth!.user.id).conversations);
+    const [communities, setCommunities] = useState<Community[]>(() => keptFor(auth!.user.id).communities);
     const [view, setView] = useState<'chats' | 'communities'>('chats');
     const [communityId, setCommunityId] = useState<number | null>(null);
     const [activeId, setActiveId] = useState<number | null>(openConversationId);
+    useEffect(() => { setOpenChat(activeId); return () => setOpenChat(null); }, [activeId]);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const [text, setText] = useState('');
@@ -37,6 +53,14 @@ export default function Chats({ openConversationId }: { openConversationId: numb
     const bottom = useRef<HTMLDivElement>(null);
     const input = useRef<HTMLTextAreaElement>(null);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+    const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
+    const [profileId, setProfileId] = useState<number | null>(null);
+    const shareText = async (text: string) => {
+        try {
+            if (navigator.share) await navigator.share({ text });
+            else { await navigator.clipboard.writeText(text); setError('Copied. Paste it wherever you like.'); }
+        } catch { /* cancelled */ }
+    };
     const [editing, setEditing] = useState<ChatMessage | null>(null);
     const [mentioned, setMentioned] = useState<{ id: number; name: string }[]>([]);
     const [suggest, setSuggest] = useState<{ query: string; people: Person[] } | null>(null);
@@ -54,7 +78,10 @@ export default function Chats({ openConversationId }: { openConversationId: numb
         setCommunities(r.communities ?? []);
     }, []);
 
-    const [loaded, setLoaded] = useState(false);
+    const [loaded, setLoaded] = useState(kept.conversations.length > 0);
+    // Keep what's on screen for the next visit, so coming back to Chats (or reopening a chat) is instant.
+    useEffect(() => { kept.conversations = conversations; kept.communities = communities; }, [conversations, communities]);
+    useEffect(() => { if (activeId) remember(activeId, messages); }, [activeId, messages]);
     useEffect(() => {
         const ready = () => { setLoaded(true); (window as { __sosReady?: () => void }).__sosReady?.(); };
         if (auth!.permissions.includes('chat.use')) loadConversations().then(ready, ready); else ready();
@@ -105,7 +132,8 @@ export default function Chats({ openConversationId }: { openConversationId: numb
         setPanel(null);
         setInfoOpen(false);
         setError(null);
-        window.history.replaceState(null, '', `/chats/${id}`);
+        window.history.replaceState(window.history.state, '', `/chats/${id}`);
+        setMessages(kept.messages.get(id) ?? []); // the last messages seen here, at once; the fresh ones follow
         setReplyTo(null); setEditing(null); setMentioned([]); setSearching(false); setResults(null); setSearchQ(''); setHasNewer(false); setCanDelete(false);
         const r = await api<{ messages: ChatMessage[]; has_more: boolean }>(`/conversations/${id}/messages`);
         setMessages(r.messages);
@@ -435,9 +463,10 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                     ) : (
                         <>
                             <div className="flex items-center gap-3 border-b border-line bg-white px-3 py-2.5 md:px-4">
-                                <button className="icon-btn -ml-1 md:hidden" onClick={() => { setActiveId(null); window.history.replaceState(null, '', '/chats'); }} aria-label="Back to chats"><ArrowLeft size={22} /></button>
-                                <button className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left hover:bg-mist/60" disabled={active.type === 'direct'}
-                                    onClick={() => setInfoOpen(true)} aria-label={active.type === 'direct' ? undefined : `Group info for ${active.name}`} title={active.type === 'direct' ? undefined : 'Group info'}>
+                                <button className="icon-btn -ml-1 md:hidden" onClick={() => { setActiveId(null); window.history.replaceState(window.history.state, '', '/chats'); }} aria-label="Back to chats"><ArrowLeft size={22} /></button>
+                                <button className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left hover:bg-mist/60"
+                                    onClick={() => (active.type === 'direct' ? active.peer && setProfileId(active.peer.id) : setInfoOpen(true))}
+                                    aria-label={active.type === 'direct' ? `Profile of ${active.name}` : `Group info for ${active.name}`} title={active.type === 'direct' ? 'Profile' : 'Group info'}>
                                 <ChatIcon c={active} size={40} />
                                 <div className="min-w-0 flex-1">
                                     <div className="truncate font-semibold text-ink">{active.name}</div>
@@ -520,8 +549,10 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                                                 actions={{
                                                     reply: canPost && m.id > 0 && !m.deleted ? () => startReply(m) : undefined,
                                                     edit: m.sender_id === me.id && m.type === 'text' && m.id > 0 && !m.deleted && Date.now() - new Date(m.created_at).getTime() < 15 * 60_000 ? () => startEdit(m) : undefined,
-                                                    remove: m.id > 0 && !m.deleted && (m.sender_id === me.id || canDelete) ? () => remove(m) : undefined,
+                                                    remove: m.id > 0 && !m.deleted && (canDelete || (m.sender_id === me.id && Date.now() - new Date(m.created_at).getTime() < 15 * 60_000)) ? () => remove(m) : undefined,
                                                     report: m.id > 0 && !m.deleted && m.sender_id !== me.id ? () => report(m) : undefined,
+                                                    forward: m.id > 0 && !m.deleted && m.type !== 'system' ? () => setForwarding(m) : undefined,
+                                                    share: m.id > 0 && !m.deleted && m.type === 'text' && m.body ? () => shareText(m.body!) : undefined,
                                                     jump: (id) => jumpTo(id),
                                                 }} />
                                         </Fragment>
@@ -587,9 +618,14 @@ export default function Chats({ openConversationId }: { openConversationId: numb
                             )}
                         </>
                     )}
+                    {forwarding && (
+                        <ForwardDialog message={forwarding} chats={conversations} onClose={() => setForwarding(null)}
+                            onDone={(n, failed) => { setForwarding(null); setError(failed ? `Forwarded to ${n}. ${failed}` : `Forwarded to ${n} chat${n === 1 ? '' : 's'}.`); loadConversations().catch(() => {}); }} />
+                    )}
+                    {profileId && <ProfileSheet userId={profileId} onClose={() => setProfileId(null)} onOpenChat={(id) => { setProfileId(null); open(id); }} />}
                     {infoOpen && active && active.type !== 'direct' && (
                         <GroupInfo conversationId={active.id} meId={me.id} onClose={() => setInfoOpen(false)}
-                            onLeft={() => { setInfoOpen(false); setActiveId(null); window.history.replaceState(null, '', '/chats'); loadConversations().catch(() => {}); }} />
+                            onLeft={() => { setInfoOpen(false); setActiveId(null); window.history.replaceState(window.history.state, '', '/chats'); loadConversations().catch(() => {}); }} />
                     )}
                 </section>
             </div>
@@ -692,7 +728,7 @@ function preview(m: ChatMessage) {
     return m.type === 'text' || m.type === 'system' ? m.body : m.type === 'image' ? 'Photo' : m.type === 'voice' ? 'Voice note' : 'File';
 }
 
-type Actions = { reply?: () => void; edit?: () => void; remove?: () => void; report?: () => void; jump: (id: number) => void };
+type Actions = { reply?: () => void; forward?: () => void; share?: () => void; edit?: () => void; remove?: () => void; report?: () => void; jump: (id: number) => void };
 
 /** Marks the search term inside a result. */
 function Highlight({ text, q }: { text: string; q: string }) {
@@ -726,7 +762,7 @@ function Bubble({ m, mine, showName, grouped, flash, meId, actions }: { m: ChatM
     const sticker = m.type === 'sticker' && !m.deleted;
     const statusReply = m.meta?.status_reply as { preview?: string; media_path?: string | null; background?: string | null } | undefined;
     const items = ([
-        ['Reply', Reply, actions.reply], ['Edit', Pencil, actions.edit], ['Report', Flag, actions.report], ['Delete for everyone', Trash2, actions.remove],
+        ['Reply', Reply, actions.reply], ['Forward', Forward, actions.forward], ['Share', Share2, actions.share], ['Edit', Pencil, actions.edit], ['Report', Flag, actions.report], ['Delete for everyone', Trash2, actions.remove],
     ] as const).filter(([, , fn]) => fn);
     return (
         <div id={m.id > 0 ? `msg-${m.id}` : undefined} className={`group flex ${mine ? 'justify-end' : 'justify-start'} ${grouped ? 'mt-0.5' : 'mt-2.5'}`} onDoubleClick={actions.reply}>
@@ -747,6 +783,7 @@ function Bubble({ m, mine, showName, grouped, flash, meId, actions }: { m: ChatM
                     </div>
                 )}
                 {showName && !mine && <div className="mb-0.5 text-[13px] font-semibold text-leaf">{m.sender_name}</div>}
+                {m.meta?.forwarded === true && !m.deleted && <div className="mb-0.5 flex items-center gap-1 text-xs text-muted italic"><Forward size={12} />Forwarded</div>}
                 {m.reply_to && !m.deleted && (
                     <button onClick={() => actions.jump(m.reply_to!.id)} className="mb-1 block w-full rounded-lg border-l-4 border-leaf bg-black/5 px-2 py-1 text-left">
                         <div className="text-xs font-semibold text-leaf">{m.reply_to.sender_id === meId ? 'You' : m.reply_to.sender_name}</div>
@@ -754,7 +791,7 @@ function Bubble({ m, mine, showName, grouped, flash, meId, actions }: { m: ChatM
                     </button>
                 )}
                 {statusReply && !m.deleted && (
-                    <a href="/status" className="mb-1 flex items-center gap-2 rounded-lg border-l-4 border-leaf bg-black/5 px-2 py-1">
+                    <Link href="/status" className="mb-1 flex items-center gap-2 rounded-lg border-l-4 border-leaf bg-black/5 px-2 py-1">
                         <span className="min-w-0 flex-1">
                             <span className="block text-xs font-semibold text-leaf">{mine ? 'You replied to their status' : 'Replied to your status'}</span>
                             <span className="line-clamp-2 text-[13px] text-muted">{statusReply.preview}</span>
@@ -762,7 +799,7 @@ function Bubble({ m, mine, showName, grouped, flash, meId, actions }: { m: ChatM
                         {statusReply.media_path
                             ? <img src={fileUrl(statusReply.media_path)} alt="" className="size-10 shrink-0 rounded-md object-cover" />
                             : <span className="size-10 shrink-0 rounded-md" style={{ background: statusReply.background ?? '#0e3b2e' }} />}
-                    </a>
+                    </Link>
                 )}
                 {m.deleted ? <em className="text-muted">This message was deleted</em>
                     : m.type === 'sticker' ? <StickerView id={m.meta?.sticker as string} />
@@ -819,6 +856,7 @@ function PeoplePicker({ mode, onClose, onDone }: { mode: 'direct' | 'group'; onC
     const [q, setQ] = useState('');
     const [who, setWho] = useState<'' | 'student' | 'staff'>('');
     const [people, setPeople] = useState<Found[]>([]);
+    const [records, setRecords] = useState<{ external_id: string; name: string; department: string | null; member_type?: string }[]>([]);
     const [searched, setSearched] = useState(false);
     const [chosen, setChosen] = useState<Found[]>([]);
     const [name, setName] = useState('');
@@ -828,9 +866,9 @@ function PeoplePicker({ mode, onClose, onDone }: { mode: 'direct' | 'group'; onC
     const [busy, setBusy] = useState<number | null>(null);
 
     const search = useCallback(() => {
-        if (q.trim().length < 2) { setPeople([]); setSearched(false); return; }
-        api<{ people: Found[] }>(`/directory?q=${encodeURIComponent(q.trim())}${who ? `&type=${who}` : ''}`)
-            .then((r) => { setPeople(r.people); setSearched(true); }).catch((e) => setError(e.message));
+        if (q.trim().length < 2) { setPeople([]); setRecords([]); setSearched(false); return; }
+        api<{ people: Found[]; records?: { external_id: string; name: string; department: string | null; member_type?: string }[] }>(`/directory?q=${encodeURIComponent(q.trim())}${who ? `&type=${who}` : ''}`)
+            .then((r) => { setPeople(r.people); setRecords(r.records ?? []); setSearched(true); }).catch((e) => setError(e.message));
     }, [q, who]);
     useEffect(() => { const t = setTimeout(search, 300); return () => clearTimeout(t); }, [search]);
 
@@ -857,6 +895,15 @@ function PeoplePicker({ mode, onClose, onDone }: { mode: 'direct' | 'group'; onC
         const r = await api<{ conversation_id: number }>(`/chat-requests/${p.request_id}/accept`, { method: 'POST' });
         onDone(r.conversation_id);
     });
+    // A staff member from the school's records who hasn't signed in yet: open their account, then chat or ask as usual.
+    const addFromRecords = async (r: { external_id: string; name: string }) => {
+        setError(null);
+        try {
+            const res = await api<{ person: Found }>('/directory/records', { body: { external_id: r.external_id } });
+            setRecords((l) => l.filter((x) => x.external_id !== r.external_id));
+            setPeople((l) => [res.person, ...l.filter((p) => p.id !== res.person.id)]);
+        } catch (e) { setError((e as Error).message); }
+    };
     const createGroup = async () => {
         try {
             const r = await api<{ conversation_id: number; skipped: number[] }>('/conversations/group', { body: { name, member_ids: chosen.map((c) => c.id) } });
@@ -918,7 +965,7 @@ function PeoplePicker({ mode, onClose, onDone }: { mode: 'direct' | 'group'; onC
 
                 <div className="scroll-area -mx-2 max-h-72 min-h-24">
                     {q.trim().length < 2 && <p className="px-2 py-6 text-center text-sm text-muted">Type at least two letters of a name, or a full matric or staff number.</p>}
-                    {searched && people.length === 0 && <p className="px-2 py-6 text-center text-sm text-muted">Nobody found. People appear here after they first sign in.</p>}
+                    {searched && people.length === 0 && records.length === 0 && <p className="px-2 py-6 text-center text-sm text-muted">Nobody found. Students appear here after they first sign in.</p>}
                     {people.map((p) => {
                         const picked = chosen.some((x) => x.id === p.id);
                         const canPick = mode === 'group' && (p.reach ?? 'direct') === 'direct';
@@ -935,6 +982,22 @@ function PeoplePicker({ mode, onClose, onDone }: { mode: 'direct' | 'group'; onC
                             </div>
                         );
                     })}
+                    {mode === 'direct' && records.length > 0 && (
+                        <div className="mt-2 border-t border-line pt-2">
+                            <p className="px-2 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">Not on SOS Connect yet</p>
+                            {records.map((r) => (
+                                <div key={r.external_id} className="flex items-center gap-3 rounded-xl px-2 py-2">
+                                    <Avatar name={r.name} size={40} />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate font-medium">{r.name}</div>
+                                        <div className="truncate text-xs text-muted">{[memberLabel(r.member_type), r.department].filter(Boolean).join(', ')} · from the school records</div>
+                                    </div>
+                                    <button className="btn-outline shrink-0 px-3 py-1.5 text-xs" onClick={() => addFromRecords(r)}>Add</button>
+                                </div>
+                            ))}
+                            <p className="px-2 pt-1 text-xs text-muted">They'll see your message or request the first time they sign in.</p>
+                        </div>
+                    )}
                 </div>
                 {error && <p role="alert" className="text-sm text-sos">{error}</p>}
                 {mode === 'group' && (
@@ -1065,5 +1128,48 @@ function ChatMenu({ c, x, y, controls, onClose, onSet }: {
                 </button>
             )}
         </div>
+    );
+}
+
+/** Forward a message to up to 10 chats and groups (it arrives marked "Forwarded"). */
+function ForwardDialog({ message, chats, onClose, onDone }: { message: ChatMessage; chats: ConversationSummary[]; onClose: () => void; onDone: (sent: number, failed: string | null) => void }) {
+    const [q, setQ] = useState('');
+    const [picked, setPicked] = useState<number[]>([]);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const list = chats.filter((c) => !q.trim() || (c.name ?? '').toLowerCase().includes(q.trim().toLowerCase())).slice(0, 60);
+    const toggle = (id: number) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 10 ? p : [...p, id]));
+    const send = async () => {
+        setBusy(true); setError(null);
+        try {
+            const r = await api<{ sent: unknown[]; failed: { reason: string }[] }>(`/messages/${message.id}/forward`, { body: { conversation_ids: picked } });
+            onDone(r.sent.length, r.failed.length ? `Not sent to ${r.failed.length}: ${r.failed[0].reason}` : null);
+        } catch (e) { setError((e as Error).message); setBusy(false); }
+    };
+    const preview = message.type === 'text' ? message.body : message.type === 'image' ? 'Photo' : message.type === 'voice' ? 'Voice note' : message.type === 'sticker' ? 'Sticker' : (message.body ?? 'File');
+    return (
+        <Modal title="Forward to…" onClose={onClose}>
+            <p className="line-clamp-2 rounded-xl bg-mist px-3 py-2 text-sm text-muted">{preview}</p>
+            <div className="relative mt-3">
+                <Search size={17} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted" />
+                <input className="input pl-10" placeholder="Search chats" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+            </div>
+            <div className="scroll-area -mx-2 mt-2 max-h-72">
+                {list.map((c) => {
+                    const on = picked.includes(c.id);
+                    return (
+                        <button key={c.id} onClick={() => toggle(c.id)} className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-mist ${on ? 'bg-mint/60' : ''}`}>
+                            <ChatIcon c={c} size={36} />
+                            <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                            <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 ${on ? 'border-leaf bg-leaf text-white' : 'border-line'}`}>{on && <Check size={12} />}</span>
+                        </button>
+                    );
+                })}
+            </div>
+            {error && <p role="alert" className="mt-2 text-sm text-sos">{error}</p>}
+            <button className="btn-primary mt-3 w-full py-2.5" disabled={!picked.length || busy} onClick={send}>
+                <Forward size={16} />{busy ? 'Forwarding…' : picked.length ? `Forward to ${picked.length}` : 'Choose chats'}
+            </button>
+        </Modal>
     );
 }

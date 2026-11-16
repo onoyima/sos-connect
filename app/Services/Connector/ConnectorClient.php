@@ -46,6 +46,22 @@ class ConnectorClient
         return ($res['ok'] ?? false) ? MemberProfile::fromArray($res['member']) : null;
     }
 
+    /** Staff in the records whose name, staff number or email matches (people who may never have signed in). @return MemberProfile[] */
+    public function staffSearch(string $q): array
+    {
+        $res = $this->call('POST', '/v1/staff-search', ['q' => $q]);
+
+        return array_map(fn ($m) => MemberProfile::fromArray($m), ($res['ok'] ?? false) ? ($res['people'] ?? []) : []);
+    }
+
+    /** People in the records (kinds: "student" covers alumni too, "staff"). @return MemberProfile[] */
+    public function peopleSearch(string $q, array $kinds): array
+    {
+        $res = $this->call('POST', '/v1/people-search', ['q' => $q, 'kinds' => array_values($kinds)]);
+
+        return array_map(fn ($m) => MemberProfile::fromArray($m), ($res['ok'] ?? false) ? ($res['people'] ?? []) : []);
+    }
+
     public function orgUnits(): array
     {
         $res = $this->call('GET', '/v1/org-units');
@@ -140,6 +156,8 @@ class ConnectorClient
                     $path === '/v1/verify' => $dir->verify((string) ($body['identifier'] ?? ''), (string) ($body['password'] ?? '')),
                     str_starts_with($path, '/v1/member/') => $dir->member(rawurldecode(substr($path, 11))),
                     $path === '/v1/org-units' => $dir->orgUnits(),
+                    $path === '/v1/staff-search' => $dir->staffSearch((string) ($body['q'] ?? '')),
+                    $path === '/v1/people-search' => $dir->peopleSearch((string) ($body['q'] ?? ''), array_values(array_intersect((array) ($body['kinds'] ?? []), ['student', 'staff']))),
                     $path === '/v1/courses' => $dir->courses(),
                     default => ['ok' => false, 'reason' => 'not_found'],
                 };

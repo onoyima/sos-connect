@@ -142,7 +142,7 @@ class MessageService
         $mentioned = array_column($message->meta['mentions'] ?? [], 'id');
         if ($mentioned) {
             SendPush::dispatch($mentioned, $sender->name.' mentioned you in '.($conversation->name ?? 'a group'), $preview, [
-                'type' => 'message', 'conversation_id' => $conversation->id,
+                'type' => 'message', 'conversation_id' => $conversation->id, 'group' => $conversation->type !== 'direct',
             ]);
         }
         if ($count > self::PUSH_MEMBER_LIMIT && ! $senderIsAdmin) {
@@ -151,7 +151,7 @@ class MessageService
 
         $members->whereNotIn('user_id', $mentioned)->select(['id', 'user_id'])->chunkById(1000, function ($chunk) use ($title, $preview, $conversation) {
             SendPush::dispatch($chunk->pluck('user_id')->all(), $title, $preview, [
-                'type' => 'message', 'conversation_id' => $conversation->id,
+                'type' => 'message', 'conversation_id' => $conversation->id, 'group' => $conversation->type !== 'direct',
             ]);
         }, 'id');
     }

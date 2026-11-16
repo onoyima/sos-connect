@@ -107,6 +107,44 @@ final class Directory
         return $r ? ['ok' => true, 'member' => $m[1] === 'st' ? $this->studentProfile($r) : $this->staffProfile($r)] : ['ok' => false, 'reason' => 'not_found'];
     }
 
+    /**
+     * People whose name or matric/staff number contains $q: "student" (students and alumni) and/or "staff".
+     * A quick lookup: only who they are and their department, never courses, hostels or guardians.
+     */
+    public function peopleSearch(string $q, array $kinds = ['student', 'staff']): array
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 2 || mb_strlen($q) > 60) {
+            return ['ok' => true, 'people' => []];
+        }
+        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q).'%';
+        $out = [];
+        if (in_array('student', $kinds, true)) {
+            foreach ($this->rows('student_search', $like) as $r) {
+                $out[] = $this->studentProfile($r, false);
+            }
+        }
+        if (in_array('staff', $kinds, true)) {
+            foreach ($this->rows('staff_search', $like) as $r) {
+                $out[] = $this->staffProfile($r, false);
+            }
+        }
+
+        return ['ok' => true, 'people' => $out];
+    }
+
+    /** Active staff whose name, staff number or email contains $q (no courses: this is a quick lookup). */
+    public function staffSearch(string $q): array
+    {
+        $q = trim($q);
+        if (mb_strlen($q) < 2 || mb_strlen($q) > 60) {
+            return ['ok' => true, 'people' => []];
+        }
+        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q).'%';
+
+        return ['ok' => true, 'people' => array_map(fn ($r) => $this->staffProfile($r, false), $this->rows('staff_search', $like))];
+    }
+
     public function orgUnits(): array
     {
         return ['ok' => true, 'units' => array_map(fn ($u) => ['type' => $u['type'], 'id' => (string) $u['id'], 'name' => $u['name'],
@@ -125,7 +163,7 @@ final class Directory
     /** Studentship codes in the standard layout, used to say why an account can't sign in. */
     private const STUDENTSHIP = [2 => 'deferment', 3 => 'withdrawn', 4 => 'expelled', 5 => 'suspended'];
 
-    private function studentProfile(array $r): array
+    private function studentProfile(array $r, bool $full = true): array
     {
         $level = is_numeric($r['level'] ?? null) ? (int) $r['level'] : null;
         $graduated = $level !== null && $level >= $this->config['graduated_level'];
@@ -143,7 +181,7 @@ final class Directory
             };
         }
         [$year, $yearKind] = $this->alumniYear($r);
-        $hostel = $graduated ? null : $this->row('student_hostel', $r['id']);
+        $hostel = $graduated || ! $full ? null : $this->row('student_hostel', $r['id']);
 
         $profile = [
             'external_id' => 'st-'.$r['id'],
@@ -162,8 +200,8 @@ final class Directory
             'department' => $this->unitOf($r, 'department'),
             'hostel' => $hostel ? ['id' => (string) $hostel['hostel_id'], 'name' => $hostel['hostel_name'], 'room' => $hostel['room'] ?? null] : null,
             'date_of_birth' => $r['dob'] ?? null, // only used to tell if under 18; not stored
-            'courses' => $graduated ? [] : $this->courseList('student_courses', $r['id']),
-            'guardians' => $graduated || ! $this->config['share_guardians'] ? [] : array_values(array_filter(array_map(fn ($g) => [
+            'courses' => $graduated || ! $full ? [] : $this->courseList('student_courses', $r['id']),
+            'guardians' => $graduated || ! $full || ! $this->config['share_guardians'] ? [] : array_values(array_filter(array_map(fn ($g) => [
                 'name' => trim((string) $g['name']), 'relationship' => $g['relationship'] ?: null, 'phone' => $g['phone'] ?: null, 'email' => $g['email'] ?: null,
             ], $this->rows('student_guardians', $r['id'])), fn ($g) => $g['name'] !== '' && ($g['email'] || $g['phone']))),
         ];
@@ -196,7 +234,7 @@ final class Directory
         return [null, null];
     }
 
-    private function staffProfile(array $r): array
+    private function staffProfile(array $r, bool $withCourses = true): array
     {
         return [
             'external_id' => 'sf-'.$r['id'],
@@ -211,7 +249,7 @@ final class Directory
             'department' => $this->unitOf($r, 'department'),
             'admin_department' => $this->unitOf($r, 'admin_department'),
             'position' => $r['position'] ?? null, // job title, display only: roles are given in SOS Connect
-            'courses' => $this->courseList('staff_courses', $r['id']),
+            'courses' => $withCourses ? $this->courseList('staff_courses', $r['id']) : [],
         ];
     }
 

@@ -8,11 +8,9 @@ import { isLive, listenInstitution, listenUser, onBadges, onChange, startLive, t
 import { askSignOut, sessionEnded, signOut, watchSession } from '@/lib/session';
 import type { SharedProps } from '@/types';
 import { Broadcasts } from './Broadcasts';
-import { CallManager } from './CallManager';
 import { PolicyGate } from './PolicyGate';
 import { SosButton } from './SosButton';
-import { SosAlarm } from './SosAlarm';
-import { PlatformChat } from './PlatformChat';
+import { setSoundChoices } from '@/lib/tones';
 import { Avatar, memberLabel } from './ui';
 import { BrandMark } from './AuthShell';
 
@@ -57,6 +55,7 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
     const [flashOpen, setFlashOpen] = useState(true);
     const [menu, setMenu] = useState(false);
     const [drawer, setDrawer] = useState(false);
+    setSoundChoices(auth?.sounds);
     // Unread platform-chat messages (the chat button is in the phone top bar; on bigger screens it floats).
     const [pcUnread, setPcUnread] = useState(0);
     useEffect(() => {
@@ -262,9 +261,6 @@ export default function AppLayout({ title, children, hideMobileNav = false }: { 
             )}
 
             {auth?.user.needs_policy_acceptance && <PolicyGate />}
-            {auth && <CallManager />}
-            {auth?.permissions.includes('sos.view') && <SosAlarm />}
-            {auth?.platform_chat && <PlatformChat lifted={url.startsWith('/chats')} />}
         </div>
     );
 }
@@ -286,7 +282,7 @@ export function Count({ n, className = '' }: { n: number; className?: string }) 
 function RailLink({ item, active, count = 0 }: { item: NavItem; active: boolean; count?: number }) {
     const Icon = item.icon;
     return (
-        <Link href={item.href} aria-current={active ? 'page' : undefined} aria-label={count ? `${item.label}, ${count} new` : undefined}
+        <Link href={item.href} prefetch cacheFor="30s" aria-current={active ? 'page' : undefined} aria-label={count ? `${item.label}, ${count} new` : undefined}
             className={`flex w-[68px] flex-col items-center gap-1 rounded-xl py-2 text-[11px] font-medium transition-colors ${active ? 'bg-white/12 text-white' : 'text-white/65 hover:bg-white/8 hover:text-white'}`}>
             <span className={`relative flex h-7 w-12 items-center justify-center rounded-full ${active ? 'bg-leaf' : ''}`}><Icon size={20} /><Count n={count} className="ring-grove" /></span>
             {item.label}
@@ -297,7 +293,7 @@ function RailLink({ item, active, count = 0 }: { item: NavItem; active: boolean;
 function TabLink({ item, active, count = 0 }: { item: NavItem; active: boolean; count?: number }) {
     const Icon = item.icon;
     return (
-        <Link href={item.href} aria-current={active ? 'page' : undefined} aria-label={count ? `${item.label}, ${count} new` : undefined}
+        <Link href={item.href} prefetch={['mount', 'hover']} cacheFor="30s" aria-current={active ? 'page' : undefined} aria-label={count ? `${item.label}, ${count} new` : undefined}
             className={`flex min-w-0 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${active ? 'text-leaf' : 'text-muted'}`}>
             <span className={`relative flex h-7 w-12 items-center justify-center rounded-full ${active ? 'bg-mint' : ''}`}><Icon size={21} /><Count n={count} /></span>
             <span className="max-w-full truncate px-0.5">{item.label}</span>
@@ -355,6 +351,7 @@ function Drawer({ onClose, main, admin, isActive, canSos, countFor }: { onClose:
                             <div className="truncate text-xs text-white/60">{auth?.user.title ?? memberLabel(auth?.user.member_type)}</div>
                         </div>
                     </div>
+                    <Link href="/account/settings" className={row(isActive('/account/settings'))} onClick={onClose}><Bell size={18} />Profile and sounds</Link>
                     <Link href="/account/privacy" className={row(isActive('/account/privacy'))} onClick={onClose}><LockKeyhole size={18} />My data and privacy</Link>
                     <Link href="/legal" className={row(isActive('/legal'))} onClick={onClose}><ScrollText size={18} />Terms and policies</Link>
                     <button className={`${row(false)} w-full text-left text-[#ff9aa4]`} onClick={askSignOut}><LogOut size={18} />Sign out</button>
@@ -409,6 +406,7 @@ function AccountMenu({ onClose, placement, extra = [] }: { onClose: () => void; 
             })}
             {modules?.face_capture && auth?.permissions.includes('face.capture') && <Link href="/face" className={row} onClick={onClose}><ScanFace size={18} className="text-muted" />Face capture</Link>}
             <Link href="/help" className={row} onClick={onClose}><LifeBuoy size={18} className="text-muted" />Help</Link>
+            <Link href="/account/settings" className={row} onClick={onClose}><Bell size={18} className="text-muted" />Profile and sounds</Link>
             <Link href="/account/privacy" className={row} onClick={onClose}><LockKeyhole size={18} className="text-muted" />My data and privacy</Link>
             <Link href="/legal" className={row} onClick={onClose}><ScrollText size={18} className="text-muted" />Terms and policies</Link>
             <button className={`${row} text-sos`} onClick={askSignOut}><LogOut size={18} />Sign out</button>

@@ -1,8 +1,9 @@
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { setOpenChat } from '@/chat/openChat';
 import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, Share } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/auth/AuthContext';
 import { useCalls } from '@/calls/CallContext';
@@ -42,6 +43,7 @@ function choose(title: string, options: string[], onPick: (i: number) => void, d
 export default function ChatScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const conversationId = Number(id);
+    useEffect(() => { setOpenChat(conversationId); return () => setOpenChat(null); }, [conversationId]);
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { me, can, has } = useAuth();
@@ -296,7 +298,10 @@ export default function ChatScreen() {
         if (m.type === 'text' && m.body) opts.push({ label: 'Copy', run: () => Clipboard.setStringAsync(m.body ?? '') });
         if (m.id && mine && m.type === 'text' && Date.now() - new Date(m.sent_at).getTime() < 15 * 60_000 && online)
             opts.push({ label: 'Edit', run: () => { setEditing(m); setReplyTo(null); setText(m.body ?? ''); } });
-        if (m.id && (mine || canDelete)) opts.push({ label: 'Delete for everyone', run: () => api(`/messages/${m.id}`, { method: 'DELETE' }).then(() => SyncEngine.run()).catch((e) => Alert.alert('Not deleted', e.message)) });
+        if (m.id && m.type !== 'system') opts.push({ label: 'Forward', run: () => router.push(`/forward?message=${m.id}`) });
+        if (m.type === 'text' && m.body) opts.push({ label: 'Share', run: () => { Share.share({ message: m.body ?? '' }).catch(() => {}); } });
+        // Your own messages can be deleted for everyone within 15 minutes; group admins can remove any message.
+        if (m.id && (canDelete || (mine && Date.now() - new Date(m.sent_at).getTime() < 15 * 60_000))) opts.push({ label: 'Delete for everyone', run: () => api(`/messages/${m.id}`, { method: 'DELETE' }).then(() => SyncEngine.run()).catch((e) => Alert.alert('Not deleted', e.message)) });
         if (m.id && !mine) opts.push({ label: 'Report', run: () => choose('Why are you reporting this?', REPORT_REASONS, (i) =>
             api(`/messages/${m.id}/report`, { body: { reason: REPORT_REASONS[i] } }).then(() => Alert.alert('Reported', 'Thank you. Moderators at your institution will look at it.')).catch((e) => Alert.alert('Not sent', e.message))) });
         if (opts.length) choose('Message', opts.map((o) => o.label), (i) => opts[i].run(), opts.findIndex((o) => o.label.startsWith('Delete')));
@@ -306,7 +311,7 @@ export default function ChatScreen() {
 
     return (
         <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.chatBg }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <BackBar title={conv?.name ?? ''} subtitle={subtitle} onTitlePress={() => router.push(`/group/${conversationId}`)}
+            <BackBar title={conv?.name ?? ''} subtitle={subtitle} onTitlePress={() => (isDirect && peer?.id ? router.push(`/profile/${peer.id}`) : router.push(`/group/${conversationId}`))}
                 avatar={conv ? <Avatar name={conv.name} size={38} icon={chatIcon(conv)} /> : null}
                 right={<>
                     <IconButton name="search" label="Search this chat" onPress={() => { setSearching(!searching); setResults(null); setQ(''); }} />

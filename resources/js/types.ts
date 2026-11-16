@@ -7,6 +7,8 @@ export interface SharedProps {
         super: boolean;
         /** Platform owners and school admins: the platform chat widget. */
         platform_chat?: boolean;
+        /** The tones this person chose (Settings > Sounds). */
+        sounds?: SoundChoices;
         /** School admins: where the subscription stands. */
         billing?: { enforced: boolean; status: string; plan: string | null; cycle: string; renews_at: string | null; days_left: number | null; grace_ends_at: string | null; cancel_at_period_end: boolean; reminder_days: number } | null;
         session_tag: string | null;
@@ -101,3 +103,5 @@ export type Branding = {
     icon: string | null;
     season: null | { key: string; label: string; badge: string; accent: string };
 };
+
+export type SoundChoices = { message: string; group: string; call: string; group_call: string; request: string; notice: string };

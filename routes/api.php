@@ -80,6 +80,15 @@ Route::middleware(['auth:sanctum', 'member', 'throttle:api'])->group(function ()
     Route::patch('/messages/{message}', [Api\MessageController::class, 'update']);
     Route::delete('/messages/{message}', [Api\MessageController::class, 'destroy']);
     Route::post('/messages/{message}/report', [Api\MessageController::class, 'report']);
+    Route::post('/messages/{message}/forward', [Api\MessageController::class, 'forward'])->middleware('throttle:30,1');
+
+    // Profiles (with WhatsApp), my contact details and sound choices, staff from the school's records.
+    Route::get('/people/{id}', [Api\PeopleController::class, 'show'])->whereNumber('id');
+    Route::post('/directory/records', [Api\PeopleController::class, 'addFromRecords'])->middleware('throttle:20,1');
+    Route::get('/me/contact', [Api\PeopleController::class, 'contact']);
+    Route::patch('/me/contact', [Api\PeopleController::class, 'saveContact'])->middleware('throttle:20,1');
+    Route::get('/me/sounds', [Api\PeopleController::class, 'sounds']);
+    Route::put('/me/sounds', [Api\PeopleController::class, 'saveSounds']);
     Route::get('/directory', [Api\DirectoryController::class, 'search'])->middleware('throttle:60,1');
     Route::get('/chat-requests', [Api\ChatRequestController::class, 'index']);
     Route::post('/chat-requests', [Api\ChatRequestController::class, 'store'])->middleware('throttle:20,1');

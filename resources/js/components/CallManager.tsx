@@ -426,7 +426,7 @@ function GroupCall({ busy, onNotice }: { busy: Busy; onNotice: (m: string) => vo
         offs.push(listenUser('groupcall.ring', (e: Ring) => {
             if (callRef.current || busy.current.direct) return;
             setRing(e);
-            startRing('incoming', `${e.caller.name} (${e.conversation_name ?? 'group'})`, () => window.focus());
+            startRing('incoming', `${e.caller.name} (${e.conversation_name ?? 'group'})`, () => window.focus(), 'group_call');
             if (ringTimer.current) window.clearTimeout(ringTimer.current);
             ringTimer.current = window.setTimeout(() => { setRing(null); stopRing(); }, 40_000);
         }));

@@ -4,6 +4,7 @@ import type { Branding } from '@/types';
 import { guardHistory, sessionEnded } from '@/lib/session';
 import { createRoot } from 'react-dom/client';
 import { stackTablesOnPhones } from '@/lib/tables';
+import { shellLayout } from '@/components/Shell';
 
 createInertiaApp({
     title: (title) => (title ? `${title} · SOS Connect` : 'SOS Connect'),
@@ -12,7 +13,12 @@ createInertiaApp({
         const pages = import.meta.glob('./pages/**/*.tsx');
         const load = pages[`./pages/${name}.tsx`];
         if (!load) throw new Error(`Page not found: ${name}`);
-        return load() as never;
+        // Every page sits inside the same Shell, which is kept between pages (calls and alarms carry on).
+        return load().then((m) => {
+            const page = (m as { default: { layout?: unknown } }).default;
+            page.layout ??= shellLayout;
+            return m;
+        }) as never;
     },
     setup({ el, App, props }) {
         createRoot(el).render(<App {...props} />);

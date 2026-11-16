@@ -65,7 +65,9 @@ export default function StatusPage() {
             <Head title="Status" />
             <PageHeader title="Status" description="Short updates that disappear after 24 hours. Like, love, comment or reply to the ones you see." />
             <PageBody narrow>
-                {canPost && <Composer onPosted={load} meName={me.name} />}
+                {canPost ? <Composer onPosted={load} meName={me.name} /> : (
+                    <p className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm text-muted">Posting status updates isn't turned on for your account. Your institution's admins can turn it on under Admin &gt; Roles.</p>
+                )}
 
                 {mine && <Section title="Your updates" groups={[mine]} onOpen={openGroup} meId={me.id} />}
                 {others.some((g) => g.unseen) && <Section title="Recent" groups={others.filter((g) => g.unseen)} onOpen={openGroup} meId={me.id} />}

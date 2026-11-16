@@ -88,6 +88,11 @@ export default function Me() {
                     </>
                 )}
 
+                <Text style={ui.sectionTitle}>Me</Text>
+                <View style={{ backgroundColor: '#fff' }}>
+                    <Row icon="musical-notes-outline" title="Profile and sounds" subtitle="Your WhatsApp number, and the tones for messages and calls" onPress={() => router.push('/profile-settings')} />
+                </View>
+
                 <Text style={ui.sectionTitle}>Devices</Text>
                 <View style={{ backgroundColor: '#fff' }}>
                     <Row icon="desktop-outline" title="Linked devices" subtitle="Use SOS Connect on a computer: scan the code on the sign-in page" onPress={() => router.push('/linked-devices')} />

@@ -51,11 +51,42 @@ class MessageController extends Controller
     {
         $me = $request->user();
         $conversation = $message->conversation()->first();
-        abort_unless($message->sender_id === $me->id || ($conversation && $conversation->manageableBy($me, 'delete_messages')), 403);
+        $groupAdmin = $conversation && $conversation->manageableBy($me, 'delete_messages');
+        abort_unless($message->sender_id === $me->id || $groupAdmin, 403);
+        // Like editing: your own messages can be deleted for everyone within 15 minutes (group admins can remove any message).
+        abort_if(! $groupAdmin && $message->created_at->lt(now()->subMinutes(15)), 422, 'Messages can be deleted for everyone within 15 minutes of sending.');
         $message->delete(); // soft delete: content hidden, row kept for receipts/report integrity, purged by retention
         $this->notifyChange($message, 'message.deleted');
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Forward a message to other chats and groups (up to 10). The copy is marked "Forwarded"; who wrote it first is
+     * not shown, as on WhatsApp. Each chat's own rules still apply (members only, admins-only groups, files allowed…).
+     */
+    public function forward(Request $request, Message $message, MessageService $service): JsonResponse
+    {
+        $me = $request->user();
+        $data = $request->validate(['conversation_ids' => 'required|array|min:1|max:10', 'conversation_ids.*' => 'integer|distinct']);
+        $from = $message->conversation()->first();
+        abort_unless($from && $from->membershipFor($me), 404);
+        abort_if($message->trashed() || in_array($message->type, ['system'], true), 422, 'This message can\'t be forwarded.');
+
+        $meta = array_diff_key($message->meta ?? [], array_flip(['mentions', 'status_reply', 'call', 'forwarded'])) + ['forwarded' => true];
+        $sent = [];
+        $failed = [];
+        foreach (\App\Models\Conversation::whereIn('id', $data['conversation_ids'])->get() as $to) {
+            try {
+                $m = $service->send($me, $to, ['client_id' => (string) \Illuminate\Support\Str::uuid(), 'type' => $message->type,
+                    'body' => $message->body, 'meta' => $meta]);
+                $sent[] = ['conversation_id' => $to->id, 'message' => $m->toClient()];
+            } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+                $failed[] = ['conversation_id' => $to->id, 'reason' => $e->getMessage()];
+            }
+        }
+
+        return response()->json(['sent' => $sent, 'failed' => $failed]);
     }
 
     public function report(Request $request, Message $message): JsonResponse

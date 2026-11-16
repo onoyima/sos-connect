@@ -1,7 +1,9 @@
+import { router } from '@inertiajs/react';
 import { LogOut, Search, ShieldCheck, ShieldOff, UserMinus, UserPlus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Avatar, Modal, memberLabel } from './ui';
+import { ProfileSheet } from './ProfileSheet';
 
 type Info = {
     id: number; type: string; name: string | null; description: string | null; posting: string; community: string | null; member_count: number;
@@ -17,6 +19,7 @@ type Found = { id: number; name: string; title?: string | null; department?: str
  */
 export function GroupInfo({ conversationId, meId, onClose, onLeft }: { conversationId: number; meId: number; onClose: () => void; onLeft: () => void }) {
     const [info, setInfo] = useState<Info | null>(null);
+    const [profile, setProfile] = useState<number | null>(null);
     const [members, setMembers] = useState<Member[]>([]);
     const [next, setNext] = useState<number | null>(null);
     const [q, setQ] = useState('');
@@ -45,6 +48,8 @@ export function GroupInfo({ conversationId, meId, onClose, onLeft }: { conversat
     };
 
     return (
+        <>
+        {profile && <ProfileSheet userId={profile} onClose={() => setProfile(null)} onOpenChat={(id) => router.visit(`/chats/${id}`)} />}
         <aside className="slide-in-right absolute inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-line bg-white shadow-xl" aria-label="Group info">
             <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
                 <button className="icon-btn" onClick={onClose} aria-label="Close group info"><X size={20} /></button>
@@ -71,6 +76,7 @@ export function GroupInfo({ conversationId, meId, onClose, onLeft }: { conversat
                 <ul>
                     {members.map((m) => (
                         <li key={m.id} className="flex items-center gap-3 px-3 py-2 hover:bg-mist/60">
+                            <button className="flex min-w-0 flex-1 items-center gap-3 text-left" disabled={m.id === meId} onClick={() => setProfile(m.id)} aria-label={`Profile of ${m.name}`}>
                             <Avatar name={m.name} size={38} />
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5">
@@ -79,6 +85,7 @@ export function GroupInfo({ conversationId, meId, onClose, onLeft }: { conversat
                                 </div>
                                 <div className="truncate text-xs text-muted">{[m.title || memberLabel(m.member_type), m.department].filter(Boolean).join(', ')}</div>
                             </div>
+                            </button>
                             {info?.can.admins && m.id !== meId && (
                                 m.role === 'admin'
                                     ? <>
@@ -108,6 +115,7 @@ export function GroupInfo({ conversationId, meId, onClose, onLeft }: { conversat
             )}
             {adding && <AddMember conversationId={conversationId} onClose={() => setAdding(false)} onAdded={() => load(1)} />}
         </aside>
+        </>
     );
 }
 

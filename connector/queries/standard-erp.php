@@ -75,6 +75,19 @@ return [
     'student_by_id' => "SELECT {$studentColumns} {$studentJoins} WHERE s.id = :id LIMIT 1",
     'staff_by_id' => "SELECT {$staffColumns} {$staffJoins} WHERE st.id = :id LIMIT 1",
 
+    // Students and alumni looking for each other (by name or matric number), including people who have never
+    // signed in to SOS Connect. Whether each one may be reached is decided from their record (active, graduated…).
+    'student_search' => "SELECT {$studentColumns} {$studentJoins}
+        WHERE CONCAT_WS(' ', s.fname, s.mname, s.lname) LIKE :q OR CONCAT_WS(' ', s.lname, s.fname) LIKE :q2 OR sa.matric_no LIKE :q3
+        ORDER BY s.lname, s.fname LIMIT 20",
+
+    // Staff looking for another staff member (by name, staff number or email), including people who have never
+    // signed in to SOS Connect. Active staff only.
+    'staff_search' => "SELECT {$staffColumns} {$staffJoins}
+        WHERE st.status = 1 AND (CONCAT_WS(' ', st.fname, st.mname, st.lname) LIKE :q OR CONCAT_WS(' ', st.lname, st.fname) LIKE :q2
+            OR swp.staff_no LIKE :q3 OR st.email LIKE :q4)
+        ORDER BY st.lname, st.fname LIMIT 20",
+
     // Courses the student registered for in their current semester -> id, code, title, level, department_id
     'student_courses' => "SELECT DISTINCT c.id, c.code, c.title, c.level, c.department_id
         FROM course_regs r JOIN courses c ON c.id = r.course_id

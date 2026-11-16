@@ -17,7 +17,7 @@ export default function NewChat() {
     const { can, has } = useAuth();
     const [q, setQ] = useState('');
     const [who, setWho] = useState<'' | 'student' | 'staff'>('');
-    const { people, busy, searched, patch } = usePeopleSearch(q, who);
+    const { people, records, busy, searched, patch, addFromRecords } = usePeopleSearch(q, who);
     const [asking, setAsking] = useState<Person | null>(null);
     const [note, setNote] = useState('');
     const [working, setWorking] = useState<number | null>(null);
@@ -84,7 +84,19 @@ export default function NewChat() {
                 keyExtractor={(p) => String(p.id)}
                 style={{ backgroundColor: '#fff' }}
                 keyboardShouldPersistTaps="handled"
-                ListEmptyComponent={direct && searched && !busy
+                ListFooterComponent={records.length ? (
+                    <View style={{ borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }}>
+                        <Text style={[ui.small, { paddingHorizontal: 16, fontWeight: '700' }]}>NOT ON SOS CONNECT YET</Text>
+                        {records.map((r) => (
+                            <ListRow key={r.external_id} title={r.name} subtitle={`${[r.member_type === 'staff' ? 'Staff' : r.member_type === 'alumni' ? 'Alumni' : 'Student', r.department].filter(Boolean).join(' · ')} · from the school records`} left={<Avatar name={r.name} size={44} />}
+                                right={<Pressable onPress={() => addFromRecords(r).catch((e) => Alert.alert('Not added', (e as Error).message))}
+                                    style={{ backgroundColor: colors.mist, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 }}>
+                                    <Text style={{ color: colors.ink, fontWeight: '700', fontSize: 13 }}>Add</Text></Pressable>} />
+                        ))}
+                        <Text style={[ui.small, { padding: 16 }]}>They'll see your message or request the first time they sign in.</Text>
+                    </View>
+                ) : null}
+                ListEmptyComponent={direct && searched && !busy && !records.length
                     ? <EmptyState icon="person-outline" title="No one found">People appear here after they first sign in. Try a different name or number.</EmptyState>
                     : direct && q.trim().length < 2 ? <Text style={[ui.small, { padding: 16, textAlign: 'center' }]}>Type at least two letters of a name, or a full matric or staff number.</Text> : null}
                 renderItem={({ item }) => (

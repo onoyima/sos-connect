@@ -64,6 +64,7 @@ Route::middleware(['auth', 'member'])->group(function () {
         Route::get('/safety', [PageController::class, 'safety'])->name('safety');
     });
     Route::get('/account/privacy', [PageController::class, 'privacy'])->name('account.privacy');
+    Route::get('/account/settings', fn () => \Inertia\Inertia::render('Account/Settings'))->name('account.settings');
     Route::get('/billing/paystack/return', [SubscriptionController::class, 'paystackReturn'])->middleware('can.do:settings.edit')->name('billing.paystack.return');
     Route::get('/help/{slug?}', [PagesController::class, 'help'])->where('slug', '[a-z0-9-]+')->name('help');
     Route::get('/face', [FacePageController::class, 'web'])->middleware('can.do:face.capture')->name('face');

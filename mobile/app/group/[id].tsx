@@ -74,6 +74,7 @@ export default function GroupInfo() {
     const memberActions = (m: Member) => {
         if (!info || m.id === me?.id) return;
         const opts: { label: string; run: () => void; danger?: boolean }[] = [];
+        if (m.id !== me?.id) opts.push({ label: 'View profile', run: () => router.push(`/profile/${m.id}`) });
         if (info.type !== 'direct' && has('direct_chat') && canDo('chat.direct')) opts.push({ label: `Message ${m.name.split(' ')[0]}`, run: async () => {
             try { const r = await api<{ conversation_id: number }>('/conversations/direct', { body: { user_id: m.id } }); await SyncEngine.refreshConversations(); router.push(`/chat/${r.conversation_id}`); }
             catch (e) { Alert.alert("Can't start a chat", (e as Error).message); }

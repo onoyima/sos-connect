@@ -35,6 +35,7 @@ export function quoteText(q: { type: string; body: string | null; deleted?: bool
 }
 
 type Meta = {
+    forwarded?: boolean;
     path?: string; size?: number | null; duration?: number | null; local_uri?: string; mime?: string; legacy_url?: string;
     call?: { uuid: string; type: 'voice' | 'video'; ended?: boolean; duration_s?: number };
     sticker?: string;
@@ -74,6 +75,7 @@ export function MessageBubble({ m, mine, showName, onLongPress, onQuotePress, me
                 borderWidth: flash ? 2 : 0, borderColor: colors.amber,
             }}>
             {showName && !mine && <Text style={{ fontSize: 13, fontWeight: '700', color: colors.leaf, marginBottom: 2 }}>{m.sender_name}</Text>}
+            {meta?.forwarded === true && !m.deleted && <Text style={{ fontSize: 12, color: colors.muted, fontStyle: 'italic', marginBottom: 2 }}>↪ Forwarded</Text>}
             {quote && !m.deleted && (
                 <Pressable onPress={() => onQuotePress?.(quote.id)} style={{ backgroundColor: 'rgba(14,59,46,0.07)', borderLeftWidth: 4, borderLeftColor: colors.leaf, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5, marginBottom: 4 }}>
                     <Text style={{ fontSize: 12.5, fontWeight: '700', color: colors.leaf }}>{quote.sender_id === meId ? 'You' : quote.sender_name}</Text>

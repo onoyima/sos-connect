@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
+import { RINGS, TONES } from '@/sound/toneDefs';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { kvGet, kvSet, wipeAll } from '@/db/database';
 import { api, getToken, setToken } from '@/lib/api';
@@ -13,6 +14,8 @@ export type Me = {
     department: string | null; faculty?: string | null; level: number | null; programme?: string | null; residence?: string | null;
     children?: { name: string; relationship: string | null; department: string | null; level: number | null }[];
     permissions: string[]; needs_policy_acceptance: boolean;
+    /** Tones chosen in Settings > Sounds (message, group, call, group_call, request, notice). */
+    sounds?: Record<string, string>;
     /** Face capture switched on for the institution (null = off), required, and done by me. */
     face?: { required: boolean; done: boolean } | null;
     /** Institution icon and today's seasonal badge (Christmas, Easter, Eid…). */
@@ -145,6 +148,16 @@ async function pushToken(): Promise<string | null> {
         });
         await Notifications.setNotificationChannelAsync('sos', { name: 'SOS alerts', importance: Notifications.AndroidImportance.MAX, bypassDnd: true, sound: 'default', vibrationPattern: [0, 500, 300, 500, 300, 500] });
         await Notifications.setNotificationChannelAsync('messages', { name: 'Messages', importance: Notifications.AndroidImportance.DEFAULT });
+        // One channel per tone people can choose (Settings > Sounds): the server sends each alert on the person's chosen one.
+        for (const id of Object.keys(TONES)) {
+            await Notifications.setNotificationChannelAsync(`tone-${id}`, { name: `Alerts: ${id}`, importance: Notifications.AndroidImportance.HIGH, sound: `tone-${id}.wav`, vibrationPattern: [0, 250] });
+        }
+        for (const id of Object.keys(RINGS)) {
+            await Notifications.setNotificationChannelAsync(`ring-${id}`, { name: `Calls: ${id}`, importance: Notifications.AndroidImportance.MAX, sound: `ring-${id}.wav`,
+                vibrationPattern: [0, 700, 500, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC });
+        }
+        await Notifications.setNotificationChannelAsync('tone-silent', { name: 'Alerts: silent', importance: Notifications.AndroidImportance.DEFAULT, sound: null });
+        await Notifications.setNotificationChannelAsync('ring-silent', { name: 'Calls: vibrate only', importance: Notifications.AndroidImportance.MAX, sound: null, vibrationPattern: [0, 700, 500, 700] });
         const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } })?.eas?.projectId;
         return (await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;
     } catch {

@@ -108,7 +108,7 @@ class RoleManager
                 'description' => 'Every student has this automatically.', 'permissions' => self::MEMBER_BASICS],
             ['slug' => 'alumni', 'name' => 'Alumni', 'rank' => 920, 'default_for' => 'alumni',
                 'description' => 'Every graduate has this automatically. They keep chats, notices and SOS, and join the alumni groups.',
-                'permissions' => ['chat.use', 'chat.direct', 'chat.files', 'directory.search', 'announcements.view', 'calls.voice', 'calls.video', 'sos.raise']],
+                'permissions' => ['chat.use', 'chat.direct', 'chat.files', 'directory.search', 'announcements.view', 'status.post', 'calls.voice', 'calls.video', 'sos.raise']],
             ['slug' => 'parent', 'name' => 'Parent or guardian', 'rank' => 950, 'default_for' => 'parent',
                 'description' => 'Every parent account has this automatically.', 'permissions' => ['chat.use', 'announcements.view', 'sos.raise']],
         ];

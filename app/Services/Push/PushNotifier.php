@@ -21,22 +21,44 @@ class PushNotifier
             return;
         }
 
-        $tokens = CurrentInstitution::bypass(fn () => Device::query()
+        // Each person hears the tone they chose (Settings > Sounds); on Android each tone has its own channel.
+        $kind = match ($data['type'] ?? null) {
+            'message' => ! empty($data['group']) ? 'group' : 'message',
+            'call' => 'call', 'group_call' => 'group_call', 'chat_request' => 'request',
+            'announcement', 'safety_check' => 'notice',
+            default => null,
+        };
+        $devices = CurrentInstitution::bypass(fn () => Device::query()
             ->whereIn('user_id', $userIds)
             ->whereNull('revoked_at')
             ->whereNotNull('push_token')
-            ->pluck('push_token')->unique()->values()->all());
+            ->get(['user_id', 'push_token']));
+        $prefs = $kind && ! $urgent ? \App\Models\User::whereIn('id', $devices->pluck('user_id')->unique())->get(['id', 'preferences'])->keyBy('id') : collect();
+        $groups = [];
+        foreach ($devices->unique('push_token') as $d) {
+            $tone = $kind && ! $urgent ? (\App\Support\Sounds::for($prefs[$d->user_id] ?? null)[$kind] ?? null) : null;
+            $groups[$tone ?? ''][] = $d->push_token;
+        }
 
+        foreach ($groups as $tone => $tokens) {
+            $this->send($tokens, $title, $body, $data, $urgent, $tone !== '' ? (string) $tone : null, $kind);
+        }
+    }
+
+    private function send(array $tokens, string $title, string $body, array $data, bool $urgent, ?string $tone, ?string $kind): void
+    {
+        $ring = in_array($kind, ['call', 'group_call'], true);
         foreach (array_chunk($tokens, 100) as $chunk) {
             $messages = array_map(fn ($t) => [
                 'to' => $t,
                 'title' => $title,
                 'body' => mb_substr($body, 0, 140),
                 'data' => $data,
-                // SOS: the siren sound, on the phone's alarm channel (rings through Do Not Disturb on Android).
-                'sound' => $urgent ? 'siren.wav' : 'default',
+                // SOS: the siren, on the phone's alarm channel (rings through Do Not Disturb on Android).
+                // Otherwise the person's chosen tone, on that tone's channel ("silent" = no sound).
+                'sound' => $urgent ? 'siren.wav' : ($tone === 'silent' ? null : ($tone ? ($ring ? "ring-{$tone}.wav" : "tone-{$tone}.wav") : 'default')),
                 'priority' => 'high',
-                'channelId' => $urgent ? 'sos-siren' : 'messages',
+                'channelId' => $urgent ? 'sos-siren' : ($tone ? ($ring ? "ring-{$tone}" : "tone-{$tone}") : 'messages'),
                 'ttl' => $urgent ? 3600 : 86400,
             ], $chunk);
 
